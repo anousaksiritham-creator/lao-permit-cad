@@ -11,7 +11,15 @@
 | `skill/SKILL.md` | Claude Code skill (copy ໄປ `~/.claude/skills/lao-permit-drawing/`) |
 | `tools/LaoPermitCad.psm1` | PowerShell module: ສ້າງແຜ່ນ, ໃສ່ກອບ A3, ຫົວຂໍ້, ລະດັບ, callout, import view |
 | `tools/study_dwg.ps1` | ວິເຄາະ DWG ທີ່ເປີດຢູ່ → `study/` |
-| `tools/su_export_views.rb` | SketchUp Ruby: export scene → 2D DWG |
+| `tools/su_export_views.rb` | SketchUp Ruby: export scene → 2D DWG (SketchUp Pro) |
+| `tools/su_extract.rb` | SketchUp Ruby: ແຜນຜັງຕັດ + view projection + component → `out/<model>/model.json` |
+| `tools/json2lsp.py` | `model.json` → AutoLISP ແຕ້ມທຸກ view ໃສ່ແຕ່ລະແຜ່ນ A3 |
+| `docs/ROADMAP.md` | ເຕັກນິກທີ່ຕ້ອງພັດທະນາຕໍ່ |
+
+## SketchUp → AutoCAD (ທົດສອບແລ້ວກັບ Seathis Office)
+1. SketchUp Ruby Console: `load 'D:/ANS/Claude/CAD train AI/lao-permit-cad/tools/su_extract.rb'`
+2. `python -I tools/json2lsp.py out/model/model.json out/model/views.lsp <X> <Y> 75 > out/model/sheets.json`
+3. AutoCAD: `(load ".../views.lsp")`, ແລ້ວ `New-PermitSheet` + `Add-LevelMark` ຕາມ `sheets.json`
 | `study/` | ຜົນວິເຄາະແບບອ້າງອີງ (layers, dimstyles, frames, hatches, blocks) |
 
 ## ເລີ່ມໃຊ້
