@@ -1,4 +1,4 @@
-# LaoPermitCad.psm1 - helpers to build Lao building-permit sheets in AutoCAD 2025 via COM.
+﻿# LaoPermitCad.psm1 - helpers to build Lao building-permit sheets in AutoCAD 2025 via COM.
 # Import-Module .\tools\LaoPermitCad.psm1 ; Connect-Acad ; New-PermitSheet -No A202 -TitleLao 'ແຜນຜັງ ຊັ້ນ 1' -Scale 75 -X 673356 -Y 84688
 
 $script:FrameBlock = 'A$C2875ed45'   # A3 frame + title strip, 43108 x 29700 at scale 1 (= 1:100)
@@ -12,7 +12,7 @@ function Connect-Acad {
     [pscustomobject]@{ Drawing = $script:Doc.FullName; Units = $script:Doc.GetVariable('INSUNITS'); Entities = $script:MS.Count }
 }
 
-function P([double]$x, [double]$y, [double]$z = 0) { [double[]]@($x, $y, $z) }
+function P([double]$x, [double]$y, [double]$z = 0) { , [double[]]@($x, $y, $z) }   # comma keeps double[] (no unroll)
 
 function Use-Layer([string]$Name, [int]$Color = 7, [string]$Linetype = 'Continuous') {
     try { $l = $script:Doc.Layers.Item($Name) } catch { $l = $script:Doc.Layers.Add($Name); $l.color = $Color
@@ -39,11 +39,14 @@ function New-PermitSheet {
     $f = Get-FrameFactor $Scale
     $fr = $script:MS.InsertBlock((P $X $Y), $script:FrameBlock, $f, $f, $f, 0)
     $fr.Layer = (Use-Layer 'A-ANNO-TITLEBLOCK' 2).Name
-    # Title-strip fields; offsets measured on the reference frames at scale 1 (MText top-left)
+    # Title-strip fields, middle-centred; centres measured on reference sheets (frame scale 1 units)
     $h = if ($f -lt 1) { 300 } else { 400 }
-    $t = Add-LaoMText ($X + 30120 * $f) ($Y + 3930 * $f) $TitleLao $h
-    $n = $script:MS.AddMText((P ($X + 39170 * $f) ($Y + 3400 * $f)), 0, $No); $n.Height = $h; $n.Layer = 'SYM_DIM'
-    $s = $script:MS.AddMText((P ($X + 39230 * $f) ($Y + 1520 * $f)), 0, "1/$Scale"); $s.Height = $h; $s.Layer = 'SYM_DIM'
+    $fields = @(@((Add-LaoMText 0 0 $TitleLao $h), 30100, 3902),
+                @($script:MS.AddMText((P 0 0), 0, $No), 39139, 3318),
+                @($script:MS.AddMText((P 0 0), 0, "1/$Scale"), 39207, 1447))
+    foreach ($fd in $fields) { $m = $fd[0]; $m.Height = $h; $m.Layer = 'SYM_DIM'
+        $m.AttachmentPoint = 5   # acAttachmentPointMiddleCenter
+        $m.InsertionPoint = (P ($X + $fd[1] * $f) ($Y + $fd[2] * $f)) }
     [pscustomobject]@{ No = $No; Frame = $fr.Handle; Origin = "$X,$Y"; Width = $script:FrameW * $f; Height = $script:FrameH * $f }
 }
 
@@ -69,10 +72,11 @@ function Add-LevelMark([double]$X, [double]$Y, [string]$NameLao, [int]$LevelMm, 
 
 # Material callout with leader (layer Dimention, h 250).
 function Add-Callout([double[]]$From, [double[]]$To, [string]$TextLao, [double]$Height = 250) {
-    $pts = [double[]]@($From[0], $From[1], 0, $To[0], $To[1], 0)
-    $ld = $script:MS.AddLeader($pts, $null, 2); $ld.Layer = 'Dimention'
     $t = $script:MS.AddMText((P ($To[0] + 100) ($To[1] + $Height)), 0, "{\fPhetsarath OT|b0|i0|c0|p2;$TextLao}")
-    $t.Height = $Height; $t.Layer = 'Dimention'; $t
+    $t.Height = $Height; $t.Layer = 'Dimention'
+    $pts = [double[]]@($From[0], $From[1], 0, $To[0], $To[1], 0)
+    $ld = $script:MS.AddLeader($pts, $t, 2); $ld.Layer = 'Dimention'   # 2 = acLineWithArrow, attached to the MText
+    $t
 }
 
 # Insert a DWG/DXF exported from SketchUp (2D view, mm, 1:1) as a block at a scale factor.
