@@ -19,7 +19,8 @@ if (cmd === 'info') { console.log(JSON.stringify(info)); process.exit(0); }
 if (cmd === 'extract') {
   const base = path.basename(info.path || 'untitled', '.skp') || 'untitled';
   const statusFile = path.join(OUT, base, 'status.json');
-  const args = {...JSON.parse(json), model_session: info.model_session};
+  const raw = fs.existsSync(json) ? fs.readFileSync(json, 'utf8') : json;   // JSON text or a file holding it
+  const args = {...JSON.parse(raw), model_session: info.model_session};
   const r = await bridge(config, 'lpc_extract', args);
   console.log('started', JSON.stringify(r));
   const t0 = Date.now();

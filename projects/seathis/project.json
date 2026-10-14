@@ -5,5 +5,19 @@
  "location": "ສະຖານທີ່: (ໃສ່ທີ່ຕັ້ງ)",
  "owner": "(ໃສ່ຊື່ເຈົ້າຂອງ)",
  "designer": "(ໃສ່ຊື່ຜູ້ອອກແບບ)",
- "date": "2026-10-15"
+ "date": "2026-10-15",
+ "model_dir": "model",
+ "dwg_name": "Seathis_Office.dwg",
+ "extract": {
+  "cuts": [
+   1500,
+   100,
+   4300
+  ],
+  "skip": [
+   "17 "
+  ],
+  "hidden": true,
+  "sections": "auto"
+ }
 }

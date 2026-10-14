@@ -16,7 +16,7 @@ from collections import defaultdict
 
 # ---------------------------------------------------------------- constants
 FRAME_W, FRAME_H = 42000.0, 29700.0           # A3 at 1:100 (frame scale 1)
-AREA = (1500.0, 5600.0, 40500.0, 28200.0)     # drawing area inside frame, frame units
+AREA = (1500.0, 7000.0, 40500.0, 28200.0)     # drawing area inside frame (above the view title), frame units
 GAP = 4000.0                                  # gap between sheets (model mm)
 SCALES = [20, 25, 50, 75, 100, 200]
 BLOCK = "LPC_A3_V1"
@@ -48,7 +48,7 @@ LAYERS = {
     "A-GRID": (8, 13, "CENTER"), "A-GRID-IDEN": (7, 18, "Continuous"), "A-DIMS": (8, 13, "Continuous"),
     "A-ANNO-TEXT": (7, 18, "Continuous"), "A-ANNO-TTLB": (7, 25, "Continuous"), "A-ANNO-SYMB": (1, 18, "Continuous"),
     "A-FLOR-LEVL": (51, 18, "Continuous"), "A-SECT-MARK": (1, 35, "DASHDOT"), "A-GRND": (32, 50, "Continuous"),
-    "A-ANNO-TABL": (7, 18, "Continuous"),
+    "A-ANNO-TABL": (7, 18, "Continuous"), "S-BELOW-GRADE": (8, 13, "HIDDEN"),
 }
 
 
@@ -147,6 +147,12 @@ class Lisp:
 
     def text(self, x, y, h, s, lay="A-ANNO-TEXT", attach=1, width=0):
         self.add('(lpc-t "%s" %s %s %s %s %d %s)' % (lay, fmt(x), fmt(y), fmt(h), lisp_str(mtext(s)), attach, fmt(width)))
+
+    def solid(self, pts, lay):
+        p = [(fmt(x), fmt(y)) for x, y in pts]
+        # SOLID vertex order is 1-2-4-3 (bow-tie otherwise)
+        self.add("(entmake (list '(0 . \"SOLID\") (cons 8 \"%s\") (list 10 %s %s 0.0) (list 11 %s %s 0.0) "
+                 "(list 12 %s %s 0.0) (list 13 %s %s 0.0) (lpc-xd)))" % ((lay,) + p[0] + p[1] + p[3] + p[2]))
 
     def circle(self, x, y, r, lay):
         self.add('(lpc-c "%s" %s %s %s)' % (lay, fmt(x), fmt(y), fmt(r)))
@@ -271,6 +277,7 @@ class SetBuilder:
         self.ox, self.oy = origin
         self.L = Lisp(project["id"])
         self.sheets = []
+        self.warnings = []
         self.cursor = self.ox
         objs = {o.get("code") or o["name"].split(" ")[0]: o for o in model["objects"]}
         self.objs = objs
@@ -313,11 +320,13 @@ class SetBuilder:
                 h = k["max"][2] - k["min"][2]
                 if w < 300 or h < 300:
                     continue
-                key = (k["name"], round(w / 10) * 10, round(h / 10) * 10)
+                typ = k["name"].split(" ")[0].split("-")[0] or prefix
+                key = (typ, round(w / 10) * 10, round(h / 10) * 10)
                 if key not in types:
-                    types[key] = "%s%d" % (prefix, len(types) + 1)
+                    n = sum(1 for t in types if t[0] == typ) + 1
+                    types[key] = "%s%d" % (typ, n)
                 res.append({"tag": types[key], "name": k["name"], "w": round(w), "h": round(h),
-                            "sill": round(k["min"][2] - (self.levels[1][1] if len(self.levels) > 1 else 0)),
+                            "sill": (lambda v: 0 if abs(v) < 50 else v)(round(k["min"][2] - (self.levels[1][1] if len(self.levels) > 1 else 0))),
                             "x": (k["min"][0] + k["max"][0]) / 2, "y": (k["min"][1] + k["max"][1]) / 2})
         return res
 
@@ -351,14 +360,14 @@ class SetBuilder:
         return out
 
     # ------------- sheet placement
-    def pick_scale(self, w, h, allowed=(50, 75, 100, 200)):
+    def pick_scale(self, w, h, allowed=(50, 75, 100, 200), reserve=0.0):
         for sc in allowed:
             f = sc / 100.0
-            if w <= (AREA[2] - AREA[0]) * f * 0.92 and h <= (AREA[3] - AREA[1]) * f * 0.85:
+            if w <= (AREA[2] - AREA[0] - reserve) * f * 0.92 and h <= (AREA[3] - AREA[1]) * f * 0.85:
                 return sc
         return allowed[-1]
 
-    def new_sheet(self, no, title, scale):
+    def new_sheet(self, no, title, scale, kind="view"):
         f = scale / 100.0
         x, y = self.cursor, self.oy
         self.cursor += FRAME_W * f + GAP
@@ -366,7 +375,8 @@ class SetBuilder:
                  "DESIGNER": self.p.get("designer", ""), "DATE": self.p.get("date", ""),
                  "TITLE": title, "SHEETNO": no, "SCALE": "1:%d" % scale}
         self.L.frame(x, y, f, attrs)
-        sh = {"no": no, "title": title, "scale": scale, "x": x, "y": y, "w": FRAME_W * f, "h": FRAME_H * f}
+        sh = {"no": no, "title": title, "scale": scale, "x": x, "y": y, "w": FRAME_W * f, "h": FRAME_H * f, "lines": 0,
+              "kind": kind}
         self.sheets.append(sh)
         return sh
 
@@ -377,16 +387,26 @@ class SetBuilder:
         acx = sh["x"] + (AREA[0] + AREA[2]) / 2 * f if cx is None else cx
         acy = sh["y"] + (AREA[1] + AREA[3]) / 2 * f + 300 * f if cy is None else cy
         dx, dy = acx - (x0 + x1) / 2, acy - (y0 + y1) / 2
-        for a, b, c, d, lay in merge_collinear(segs):
+        merged = merge_collinear(segs)
+        for a, b, c, d, lay in merged:
             self.L.line(a + dx, b + dy, c + dx, d + dy, lay)
+        self.check_fit(sh, x0 + dx, y0 + dy, x1 + dx, y1 + dy, len(merged))
         return dx, dy
+
+    def check_fit(self, sh, x0, y0, x1, y1, n):
+        f = sh["scale"] / 100.0
+        sh["lines"] += n
+        ax0, ay0 = sh["x"] + 1000 * f, sh["y"] + 5000 * f
+        ax1, ay1 = sh["x"] + 41000 * f, sh["y"] + 28700 * f
+        if x0 < ax0 or y0 < ay0 or x1 > ax1 or y1 > ay1:
+            self.warnings.append("%s: view extends outside the border" % sh["no"])
 
     def view_title(self, sh, x, y, title, scale):
         f = sh["scale"] / 100.0
         h = 4.0 * sh["scale"]
-        self.L.text(x, y, h, title, "A-ANNO-TEXT", 2)
-        self.L.line(x - 6000 * f, y - h * 0.9, x + 6000 * f, y - h * 0.9, "A-ANNO-TTLB")
-        self.L.text(x, y - h * 1.3, h * 0.6, "ມາດຕາສ່ວນ 1:%d" % scale, "A-ANNO-TEXT", 2)
+        self.L.text(x, y + h * 0.4, h, title, "A-ANNO-TEXT", 8)          # bottom-centre on the line
+        self.L.line(x - 6000 * f, y, x + 6000 * f, y, "A-ANNO-TTLB")
+        self.L.text(x, y - h * 0.4, h * 0.6, "ມາດຕາສ່ວນ 1:%d" % scale, "A-ANNO-TEXT", 2)
 
     def note(self, sh, text):
         f = sh["scale"] / 100.0
@@ -400,8 +420,9 @@ class SetBuilder:
         r = 4.5 * scale
         ext = 9 * scale
         x0, y0, x1, y1 = segs_bb
-        nums = [str(i + 1) for i in range(len(gx))]
-        lets = [chr(65 + i) for i in range(len(gy))]
+        long_y = (self.fp[1][1] - self.fp[0][1]) > (self.fp[1][0] - self.fp[0][0])
+        nums = ([chr(65 + i) for i in range(len(gx))] if long_y else [str(i + 1) for i in range(len(gx))])
+        lets = ([str(i + 1) for i in range(len(gy))] if long_y else [chr(65 + i) for i in range(len(gy))])
         # model x-grids -> after rotation they are horizontal lines; keep generic via tplan
         for v, lab in zip(gx, nums):
             a = self.tplan(v, self.fp[0][1] - 1500)
@@ -426,13 +447,14 @@ class SetBuilder:
         gx, gy = self.grids
         (mnx, mny, _), (mxx, mxy, _) = self.fp
         step = 8 * scale
+        base = 1500 + 12 * scale         # first dimension row sits outside the grid bubbles
         xs = sorted(set([mnx] + gx + [mxx]))
         ys = sorted(set([mny] + gy + [mxy]))
         # dimension chains along model X (below model min Y) and along model Y (left of model min X)
         for row, chain in enumerate((gx and [mnx] + gx + [mxx], [mnx, mxx])):
             if not chain:
                 continue
-            off = mny - 1500 - (row + 1) * step
+            off = mny - base - row * step
             for a, b in zip(chain, chain[1:]):
                 if b - a < 50:
                     continue
@@ -440,7 +462,7 @@ class SetBuilder:
         for row, chain in enumerate((gy and [mny] + gy + [mxy], [mny, mxy])):
             if not chain:
                 continue
-            off = mnx - 1500 - (row + 1) * step
+            off = mnx - base - row * step
             for a, b in zip(chain, chain[1:]):
                 if b - a < 50:
                     continue
@@ -466,10 +488,11 @@ class SetBuilder:
     def section_marks(self, dx, dy, scale):
         for s in self.m.get("sections", []):
             at = s["at"]
+            ext = 1500 + 27 * scale          # beyond grid bubbles and both dimension rows
             if s["axis"] == "y":
-                a, b = self.tplan(self.fp[0][0] - 2500, at), self.tplan(self.fp[1][0] + 2500, at)
+                a, b = self.tplan(self.fp[0][0] - ext, at), self.tplan(self.fp[1][0] + ext, at)
             else:
-                a, b = self.tplan(at, self.fp[0][1] - 2500), self.tplan(at, self.fp[1][1] + 2500)
+                a, b = self.tplan(at, self.fp[0][1] - ext), self.tplan(at, self.fp[1][1] + ext)
             ax, ay, bx, by = a[0] + dx, a[1] + dy, b[0] + dx, b[1] + dy
             self.L.line(ax, ay, bx, by, "A-SECT-MARK")
             lab = s["name"].split("-")[0]
@@ -521,14 +544,28 @@ class SetBuilder:
         return y - n * rh
 
     # ------------- sheets
-    def plan_sheet(self, no, title, segs, extra=None, dims=True, tags=True, sections=True, scale=None, note=None):
+    def column_fill(self, dx, dy, codes, z):
+        for c in codes:
+            for k in self.objs.get(c, {}).get("children", []):
+                (x0, y0, z0), (x1, y1, z1) = k["min"], k["max"]
+                if not (z0 < z < z1) or max(x1 - x0, y1 - y0) > 800 or z1 - z0 < 300:
+                    continue
+                pts = [self.tplan(x0, y0), self.tplan(x1, y0), self.tplan(x1, y1), self.tplan(x0, y1)]
+                self.L.solid([(px + dx, py + dy) for px, py in pts], "S-COLS-CUT")
+
+    def plan_sheet(self, no, title, segs, extra=None, dims=True, tags=True, sections=True, scale=None, note=None,
+                   reserve=0.0, fill=None):
+        """reserve: frame units kept free on the right (legend column)."""
         bb = bbox(segs)
-        sc = scale or self.pick_scale(bb[2] - bb[0] + 30 * 75, bb[3] - bb[1] + 30 * 75)
+        sc = scale or self.pick_scale(bb[2] - bb[0] + 30 * 75, bb[3] - bb[1] + 30 * 75, reserve=reserve)
         sh = self.new_sheet(no, title, sc)
-        dx, dy = self.place(sh, segs)
+        f = sc / 100.0
+        dx, dy = self.place(sh, segs, cx=sh["x"] + (AREA[0] + AREA[2] - reserve) / 2 * f)
         if extra:
             for a, b, c, d, lay in extra:
                 self.L.line(a + dx, b + dy, c + dx, d + dy, lay)
+        if fill:
+            self.column_fill(dx, dy, *fill)
         self.grid_annot(sh, dx, dy, bb, sc)
         if dims:
             self.plan_dims(dx, dy, sc)
@@ -538,36 +575,76 @@ class SetBuilder:
             self.section_marks(dx, dy, sc)
         self.north_arrow(sh)
         f = sc / 100.0
-        self.view_title(sh, sh["x"] + 21000 * f, sh["y"] + 6900 * f, title, sc)
+        self.view_title(sh, (sh["x"] + (AREA[0] + AREA[2]) / 2 * f), sh["y"] + 6100 * f, title, sc)
         if note:
             self.note(sh, note)
         return sh
 
-    def elev_sheet(self, no, title, segs, levels=True):
+    def elev_grids(self, view, dx, dy, ybot, scale):
+        gx, gy = self.grids
+        long_y = (self.fp[1][1] - self.fp[0][1]) > (self.fp[1][0] - self.fp[0][0])
+        labx = [chr(65 + i) for i in range(len(gx))] if long_y else [str(i + 1) for i in range(len(gx))]
+        laby = [str(i + 1) for i in range(len(gy))] if long_y else [chr(65 + i) for i in range(len(gy))]
+        if view in ("front", "A-A"):
+            items = list(zip(gx, labx))
+        elif view == "back":
+            items = [(-v, l) for v, l in zip(gx, labx)]
+        elif view in ("left", "B-B"):
+            items = [(-v, l) for v, l in zip(gy, laby)]
+        elif view == "right":
+            items = list(zip(gy, laby))
+        else:
+            return
+        r = 4.5 * scale
+        for u, lab in items:
+            x = u + dx
+            self.L.line(x, ybot + dy + r * 2, x, ybot + dy + r * 2 + 1200, "A-GRID")
+            self.L.circle(x, ybot + dy + r, r, "A-GRID-IDEN")
+            self.L.text(x, ybot + dy + r, r, lab, "A-GRID-IDEN", 5)
+
+    def elev_sheet(self, no, title, segs, levels=True, view=None):
+        segs = [(a, b, c, d, "S-BELOW-GRADE" if max(b, d) < -20 else lay) for a, b, c, d, lay in segs
+                if not (max(b, d) < -20 and lay in ("P-PIPE", "P-SANR"))]
         bb = bbox(segs)
-        sc = self.pick_scale(bb[2] - bb[0] + 40 * 75, bb[3] - bb[1] + 20 * 75)
+        zone = 62.0          # level marks: paper mm right of the view
+        sc = None
+        for cand in (50, 75, 100, 200):
+            if self.pick_scale(bb[2] - bb[0] + 1500 + zone * cand, bb[3] - bb[1] + 15 * cand, (cand,)) == cand and                bb[2] - bb[0] + 1500 + zone * cand <= (AREA[2] - AREA[0]) * cand / 100 * 0.92:
+                sc = cand
+                break
+        sc = sc or 200
         sh = self.new_sheet(no, title, sc)
-        # ground line
+        # ground line + invisible extent for the level zone so the whole group is centred
         g = [(bb[0] - 1500, 0, bb[2] + 1500, 0, "A-GRND")]
-        dx, dy = self.place(sh, segs + g)
-        if levels:
-            self.levels_elev(dx, dy, bb[2] + 1500, sc)
         f = sc / 100.0
-        self.view_title(sh, sh["x"] + 21000 * f, sh["y"] + 6900 * f, title, sc)
+        x0, y0, x1, y1 = bbox(segs + g)
+        x1z = x1 + zone * sc
+        dx = sh["x"] + (AREA[0] + AREA[2]) / 2 * f - (x0 + x1z) / 2
+        dy = sh["y"] + (AREA[1] + AREA[3]) / 2 * f + 300 * f - (y0 + y1) / 2
+        merged = merge_collinear(segs + g)
+        for a, b, c, d, lay in merged:
+            self.L.line(a + dx, b + dy, c + dx, d + dy, lay)
+        self.check_fit(sh, x0 + dx, y0 + dy, x1z + dx, y1 + dy, len(merged))
+        if levels:
+            self.levels_elev(dx, dy, bb[2] + 1000, sc)
+        if view:
+            self.elev_grids(view, dx, dy, y0 - 12 * sc, sc)
+        f = sc / 100.0
+        self.view_title(sh, (sh["x"] + (AREA[0] + AREA[2]) / 2 * f), sh["y"] + 6100 * f, title, sc)
         return sh
 
     def cover(self, index):
         sc = 100
-        sh = self.new_sheet("A101", "ໜ້າປົກ ແລະ ສາລະບານ", sc)
+        sh = self.new_sheet("A101", "ໜ້າປົກ ແລະ ສາລະບານ", sc, kind="table")
         x, y = sh["x"], sh["y"]
         self.L.text(x + 21000, y + 25500, 1200, self.p["name"], "A-ANNO-TEXT", 2)
         self.L.text(x + 21000, y + 23600, 700, self.p.get("subtitle", ""), "A-ANNO-TEXT", 2)
         self.L.text(x + 21000, y + 22300, 450, self.p.get("location", ""), "A-ANNO-TEXT", 2)
-        cols = [("ເລກແຜ່ນ", 3500), ("ຊື່ແຜ່ນ", 13000), ("ມາດຕາສ່ວນ", 3500)]
+        cols = [("ເລກແຜ່ນ", 2800), ("ຊື່ແຜ່ນ", 12800), ("ມາດຕາສ່ວນ", 2800)]
         half = (len(index) + 1) // 2
         for k, part in enumerate((index[:half], index[half:])):
             if part:
-                self.table(x + 1800 + k * 20000, y + 20500, cols, [[a, b, c] for a, b, c in part], 280)
+                self.table(x + 1800 + k * 19600, y + 20500, cols, [[a, b, c] for a, b, c in part], 280)
         return sh
 
     def build(self):
@@ -584,18 +661,23 @@ class SetBuilder:
         plan = next((p for p in m["plans"] if 1000 <= p["z"] <= 2000), m["plans"][0])
         archi = None
         # --- A2 plans
-        self.plan_sheet("A201", "ແຜນຜັງ ຊັ້ນ 1", self.plan_segs(plan["segs"], codes=None))
+        arch = {"03", "04", "05", "07", "08", "09", "10", "11", "12", "13", "15", "16", "19", "20"}
+        self.plan_sheet("A201", "ແຜນຜັງ ຊັ້ນ 1", self.plan_segs(plan["segs"], codes=arch), fill=(["04", "08"], plan["z"]))
         self.plan_sheet("A202", "ແຜນຜັງ ບອກໄລຍະ ແລະ ປະຕູ-ປ່ອງຢ້ຽມ",
-                        self.plan_segs(plan["segs"], codes=None, kinds={"cut"}) +
-                        self.plan_segs(plan["segs"], codes={"03", "13", "10", "11"}, kinds={"beyond"}))
-        self.plan_sheet("A203", "ແຜນຜັງ ຫຼັງຄາ", self.plan_segs(m["views"]["top"]["segs"]), tags=False, sections=False)
+                        self.plan_segs(plan["segs"], codes=arch, kinds={"cut"}) +
+                        self.plan_segs(plan["segs"], codes={"03", "13", "10", "11"}, kinds={"beyond"}),
+                        fill=(["04", "08"], plan["z"]))
+        roofc = {"03", "04", "05", "06", "07", "08", "09", "11", "13", "20"}
+        self.plan_sheet("A203", "ແຜນຜັງ ຫຼັງຄາ", self.plan_segs(m["views"]["top"]["segs"], codes=roofc),
+                        tags=False, sections=False)
         # --- A3 elevations + sections
         names = {"front": ("A301", "ຮູບດ້ານໜ້າ"), "back": ("A302", "ຮູບດ້ານຫຼັງ"),
                  "left": ("A303", "ຮູບດ້ານຊ້າຍ"), "right": ("A304", "ຮູບດ້ານຂວາ")}
         for k, (no, t) in names.items():
-            self.elev_sheet(no, t, self.elev_segs(m["views"][k]["segs"]))
+            self.elev_sheet(no, t, self.elev_segs(m["views"][k]["segs"]), view=k)
         for i, s in enumerate(m.get("sections", [])):
-            self.elev_sheet("A31%d" % (i + 1), "ຮູບຕັດ %s" % s["name"], self.elev_segs(s["segs"]))
+            self.elev_sheet("A31%d" % (i + 1), "ຮູບຕັດ %s" % s["name"], self.elev_segs(s["segs"]),
+                            view=s["name"] if s.get("look", 1) > 0 else None)
         # --- A4 schedule
         self.schedule_sheet()
         # --- B structure
@@ -603,19 +685,22 @@ class SetBuilder:
         if found:
             self.plan_sheet("B101", "ແຜນຜັງ ຮາກຖານ ແລະ ຄານຄໍດິນ",
                             self.plan_segs(found["segs"], codes={"00", "01", "02", "03", "04", "18"}),
-                            tags=False, sections=False, note=self.p["engineer_note"])
+                            tags=False, sections=False, note=self.p["engineer_note"], fill=(["01", "04"], found["z"]))
         xr = m["views"].get("top_xray", {}).get("segs", [])
         if xr:
             self.plan_sheet("B201", "ແຜນຜັງ ໂຄງຫຼັງຄາ (ເສົາ, ຄານ, ແປ)",
                             self.plan_segs(xr, codes={"04", "05", "06"}), tags=False, sections=False,
                             note=self.p["engineer_note"])
             walls = self.plan_segs(plan["segs"], codes={"04", "08", "10", "11"}, kinds={"cut"})
-            self.plan_sheet("E101", "ແຜນຜັງ ໄຟຟ້າ ແສງສະຫວ່າງ",
-                            walls + self.plan_segs(xr, codes={"19"}), tags=False, sections=False,
-                            note=self.p["engineer_note"])
-            self.plan_sheet("P101", "ແຜນຜັງ ລະບົບນ້ຳ ແລະ ສຸຂະພັນ",
-                            walls + self.plan_segs(xr, codes={"14", "15"}), tags=False, sections=False,
-                            note=self.p["engineer_note"])
+            self.member_schedule()
+            sh = self.plan_sheet("E101", "ແຜນຜັງ ໄຟຟ້າ ແສງສະຫວ່າງ",
+                                 walls + self.plan_segs(xr, codes={"19"}), tags=False, sections=False,
+                                 note=self.p["engineer_note"], reserve=11500)
+            self.legend(sh, ["19"], "ສັນຍາລັກ / LEGEND")
+            sh = self.plan_sheet("P101", "ແຜນຜັງ ລະບົບນ້ຳ ແລະ ສຸຂະພັນ",
+                                 walls + self.plan_segs(xr, codes={"14", "15"}), tags=False, sections=False,
+                                 note=self.p["engineer_note"], reserve=11500)
+            self.legend(sh, ["14", "15"], "ສັນຍາລັກ / LEGEND")
         # --- cover with index (placed in the reserved slot)
         end = self.cursor
         self.cursor = cover_x
@@ -629,15 +714,61 @@ class SetBuilder:
         L.add('(princ "\\nLPC set built") (princ)')
         return "\n".join(L.lines)
 
+    def legend(self, sh, codes, title):
+        """Fixture legend from component children (type = name prefix before '-NN')."""
+        f = sh["scale"] / 100.0
+        agg = {}
+        for c in codes:
+            for k in self.objs.get(c, {}).get("children", []):
+                typ = k["name"].split(" ")[0].split("-")[0]
+                desc = k["name"].split(" ", 1)[1] if " " in k["name"] else k["name"]
+                a = agg.setdefault(typ, [desc, 0])
+                a[1] += 1
+        if not agg:
+            return
+        rows = [[t, d[:30], str(n)] for t, (d, n) in sorted(agg.items())]
+        x, y = sh["x"] + 29800 * f, sh["y"] + 24500 * f
+        self.L.text(x, y + 500 * f, 2.6 * sh["scale"], title, "A-ANNO-TEXT", 7)
+        self.table(x, y, [("ລະຫັດ", 1800 * f), ("ລາຍການ", 7200 * f), ("ຈຳນວນ", 1800 * f)], rows, 2.0 * sh["scale"])
+
+    def member_schedule(self):
+        rows = {}
+        for c in ("00", "01", "02", "04", "05", "06", "18"):
+            o = self.objs.get(c)
+            if not o:
+                continue
+            for k in o.get("children", []):
+                typ = k["name"].split(" ")[0].split("-")[0]
+                desc = k["name"].split(" ", 1)[1] if " " in k["name"] else ""
+                dims = sorted(round(k["max"][i] - k["min"][i]) for i in range(3))
+                key = (c, typ)
+                r = rows.setdefault(key, {"desc": desc, "n": 0, "sizes": set()})
+                r["n"] += 1
+                r["sizes"].add("%dx%d" % (dims[0], dims[1]))
+                r["len"] = max(r.get("len", 0), dims[2])
+        if not rows:
+            return
+        sh = self.new_sheet("B401", "ຕາຕະລາງ ອົງປະກອບໂຄງສ້າງ", 50, kind="table")
+        data = [[t, r["desc"][:30], ", ".join(sorted(r["sizes"]))[:24], str(r["len"]), str(r["n"])]
+                for (c, t), r in sorted(rows.items())]
+        cols = [("ລະຫັດ", 1500), ("ລາຍການ", 6500), ("ໜ້າຕັດ bbox mm", 4200), ("ຍາວ/ສູງ mm", 2200), ("ຈຳນວນ", 1500)]
+        half = (len(data) + 1) // 2 if len(data) > 26 else len(data)
+        self.table(sh["x"] + 900, sh["y"] + 13400, cols, data[:half], 150)
+        if data[half:]:
+            self.table(sh["x"] + 900 + 16300, sh["y"] + 13400, cols, data[half:], 150)
+        self.view_title(sh, sh["x"] + 10500, sh["y"] + 3050, "ຕາຕະລາງ ອົງປະກອບໂຄງສ້າງ", 50)
+        self.note(sh, "ຂະໜາດຈາກ bounding box ຂອງ component (ບໍ່ແມ່ນຂະໜາດໜ້າຕັດອອກແບບ) — "
+                      "ວິສະວະກອນຕ້ອງກຳນົດ ແລະ ຢັ້ງຢືນ ໜ້າຕັດ, ເຫຼັກເສີມ, ຊັ້ນຄອນກຣີດ")
+
     def schedule_sheet(self):
-        sh = self.new_sheet("A401", "ຕາຕະລາງ ປະຕູ ແລະ ປ່ອງຢ້ຽມ", 50)
+        sh = self.new_sheet("A401", "ຕາຕະລາງ ປະຕູ ແລະ ປ່ອງຢ້ຽມ", 50, kind="table")
         x, y = sh["x"] + 1500, sh["y"] + 13500
         agg = {}
         for o in self.openings:
             a = agg.setdefault(o["tag"], dict(o, n=0))
             a["n"] += 1
         rows = [[t, a["name"][:28], str(a["w"]), str(a["h"]), str(a["sill"]), str(a["n"])]
-                for t, a in sorted(agg.items(), key=lambda kv: (kv[0][0], int(kv[0][1:])))]
+                for t, a in sorted(agg.items(), key=lambda kv: (kv[0].rstrip('0123456789'), int('0' + kv[0][len(kv[0].rstrip('0123456789')):])))]
         if not rows:
             rows = [["-", "ບໍ່ພົບ component ປະຕູ/ປ່ອງຢ້ຽມ", "", "", "", ""]]
         cols = [("ລະຫັດ", 1500), ("ຊື່ (SketchUp)", 6500), ("ກວ້າງ mm", 2000), ("ສູງ mm", 2000),
@@ -654,13 +785,13 @@ def main():
     model = json.load(open(src, encoding="utf-8"))
     project = json.load(open(proj_path, encoding="utf-8"))
     project.setdefault("engineer_note", "ໝາຍເຫດ: ແຜ່ນນີ້ສ້າງຈາກໂມເດວ — ວິສະວະກອນຕ້ອງກວດກາ, ຄຳນວນ ແລະ ຢັ້ງຢືນກ່ອນນຳໃຊ້")
-    project.setdefault("done_flag", out + ".done")
+    project["done_flag"] = os.path.abspath(out + ".done")
     if os.path.exists(project["done_flag"]):
         os.remove(project["done_flag"])
     b = SetBuilder(model, project, (ox, oy))
     lsp = b.build()
     open(out, "w", encoding="ascii").write(lsp)
-    meta = {"sheets": b.sheets, "rotate": b.rotate, "grids": b.grids, "levels": b.levels,
+    meta = {"sheets": b.sheets, "warnings": b.warnings, "rotate": b.rotate, "grids": b.grids, "levels": b.levels,
             "openings": len(b.openings), "done_flag": project["done_flag"]}
     json.dump(meta, open(out + ".sheets.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(json.dumps({"sheets": [(s["no"], s["scale"]) for s in b.sheets], "grids": [len(g) for g in b.grids],

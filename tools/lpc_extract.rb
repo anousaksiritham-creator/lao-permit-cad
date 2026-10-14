@@ -142,15 +142,16 @@ module LaoPermitExtract
     # plane given by 4 corner points (inches); returns [[p1,p2,code]] world points
     def cut(corners)
       out = []
+      pts = corners.map { |c| Geom::Point3d.new(*c) }
+      border = (pts.each_cons(2).to_a << [pts[-1], pts[0]]).map { |c1, c2| [c1, c2 - c1] }
       tops.each do |top|
         g = @model.entities.add_group
-        g.entities.add_face(corners)
+        g.entities.add_face(pts)
         g.entities.intersect_with(true, g.transformation, g.entities, g.transformation, false, [top])
-        border = corners.each_cons(2).to_a << [corners[-1], corners[0]]
         g.entities.grep(Sketchup::Edge).each do |ed|
           a = ed.start.position
           b = ed.end.position
-          on_border = border.any? { |c1, c2| a.on_line?([c1, c2 - c1]) && b.on_line?([c1, c2 - c1]) }
+          on_border = border.any? { |line| a.on_line?(line) && b.on_line?(line) }
           out << [a, b, code_of(top)] unless on_border
         end
         g.erase!
@@ -192,6 +193,35 @@ module LaoPermitExtract
         end
       end
       segs
+    end
+
+    # Auto section planes: middle of the column bay nearest the building centre (columns = children
+    # of the '04' component, <= 600 mm square, > 1.5 m tall), so the cut never runs along a grid.
+    # Building = walls '08' if present. Falls back to the centre of the bounds.
+    def auto_section_positions(bb)
+      walls = tops.find { |e| code_of(e) == '08' }
+      fb = walls ? walls.bounds : bb
+      cx = (fb.min.x + fb.max.x) / 2
+      cy = (fb.min.y + fb.max.y) / 2
+      cols = tops.find { |e| code_of(e) == '04' }
+      return [cx, cy] unless cols
+      xs = []
+      ys = []
+      ents_of(cols).each do |e|
+        next unless instance?(e)
+        b = Geom::BoundingBox.new
+        (0..7).each { |i| b.add(e.bounds.corner(i).transform(cols.transformation)) }
+        next unless b.width <= inch(600) && b.height <= inch(600) && b.depth > inch(1500)
+        xs << b.center.x
+        ys << b.center.y
+      end
+      mid = lambda do |vals, c|
+        g = vals.sort.chunk_while { |p, q| q - p < inch(150) }.map { |grp| grp.sum / grp.size }
+        return c if g.size < 2
+        bays = g.each_cons(2).map { |p, q| (p + q) / 2 }
+        bays.min_by { |m| (m - c).abs }
+      end
+      [mid.call(xs, cx), mid.call(ys, cy)]
     end
 
     def bounds_of(list)
@@ -261,8 +291,9 @@ module LaoPermitExtract
           { name: sp.name.to_s.empty? ? sp.symbol.to_s : sp.name, axis: axis, at: at, look: axis == 'x' ? (pa[0] > 0 ? 1 : -1) : (pa[1] > 0 ? 1 : -1) }
         end.select { |s| s[:at].finite? }
         if planes.empty? && a['sections'] == 'auto'
-          planes = [{ name: 'A-A', axis: 'y', at: (bb.min.y + bb.max.y) / 2, look: 1 },
-                    { name: 'B-B', axis: 'x', at: (bb.min.x + bb.max.x) / 2, look: 1 }]
+          ax, ay = auto_section_positions(bb)
+          planes = [{ name: 'A-A', axis: 'y', at: ay, look: 1 },
+                    { name: 'B-B', axis: 'x', at: ax, look: 1 }]
         end
         planes.each do |s|
           status('running', "section #{s[:name]}")
