@@ -48,7 +48,7 @@ LAYERS = {
     "A-GRID": (8, 13, "CENTER"), "A-GRID-IDEN": (7, 18, "Continuous"), "A-DIMS": (8, 13, "Continuous"),
     "A-ANNO-TEXT": (7, 18, "Continuous"), "A-ANNO-TTLB": (7, 25, "Continuous"), "A-ANNO-SYMB": (1, 18, "Continuous"),
     "A-FLOR-LEVL": (51, 18, "Continuous"), "A-SECT-MARK": (1, 35, "DASHDOT"), "A-GRND": (32, 50, "Continuous"),
-    "A-ANNO-TABL": (7, 18, "Continuous"), "S-BELOW-GRADE": (8, 13, "HIDDEN"),
+    "A-ANNO-TABL": (7, 18, "Continuous"), "S-BELOW-GRADE": (8, 13, "HIDDEN"), "A-HATCH": (8, 9, "Continuous"),
 }
 
 
@@ -112,6 +112,56 @@ def merge_collinear(segs, tol=0.6):
     return res
 
 
+def closed_loops(segs, snap=1.0):
+    """segs [(x1,y1,x2,y2)] -> list of closed polygons [(x,y),...] from components whose vertices
+    all have degree 2 (unambiguous outlines). Used to hatch cut material."""
+    key = lambda x, y: (round(x / snap), round(y / snap))
+    adj = defaultdict(list)
+    pos = {}
+    for i, (x1, y1, x2, y2) in enumerate(segs):
+        a, b = key(x1, y1), key(x2, y2)
+        if a == b:
+            continue
+        adj[a].append(b)
+        adj[b].append(a)
+        pos[a], pos[b] = (x1, y1), (x2, y2)
+    seen = set()
+    loops = []
+    for start in list(adj):
+        if start in seen:
+            continue
+        # collect component
+        comp, stack = [], [start]
+        seen.add(start)
+        while stack:
+            v = stack.pop()
+            comp.append(v)
+            for w in adj[v]:
+                if w not in seen:
+                    seen.add(w)
+                    stack.append(w)
+        if len(comp) < 3 or any(len(set(adj[v])) != 2 for v in comp):
+            continue
+        poly, prev, cur = [start], None, start
+        while True:
+            nxt = [w for w in set(adj[cur]) if w != prev]
+            if not nxt:
+                break
+            prev, cur = cur, nxt[0]
+            if cur == start:
+                break
+            poly.append(cur)
+            if len(poly) > len(comp):
+                break
+        if len(poly) == len(comp):
+            loops.append([pos[v] for v in poly])
+    return loops
+
+
+def poly_area(pts):
+    return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]))) / 2
+
+
 def bbox(segs):
     xs = [c for s in segs for c in (s[0], s[2])]
     ys = [c for s in segs for c in (s[1], s[3])]
@@ -153,6 +203,10 @@ class Lisp:
         # SOLID vertex order is 1-2-4-3 (bow-tie otherwise)
         self.add("(entmake (list '(0 . \"SOLID\") (cons 8 \"%s\") (list 10 %s %s 0.0) (list 11 %s %s 0.0) "
                  "(list 12 %s %s 0.0) (list 13 %s %s 0.0) (lpc-xd)))" % ((lay,) + p[0] + p[1] + p[3] + p[2]))
+
+    def hatch(self, pts, lay, pat, scale):
+        xy = " ".join("(list %s %s)" % (fmt(x), fmt(y)) for x, y in pts)
+        self.add('(vl-catch-all-apply (function lpc-h) (list "%s" "%s" %s (list %s)))' % (lay, pat, fmt(scale), xy))
 
     def circle(self, x, y, r, lay):
         self.add('(lpc-c "%s" %s %s %s)' % (lay, fmt(x), fmt(y), fmt(r)))
@@ -200,6 +254,15 @@ PRELUDE = r'''
 (defun lpc-d (x1 y1 x2 y2 lx ly rot sc / d)
   (setq d (vla-AddDimRotated lpc-ms (vlax-3d-point x1 y1 0) (vlax-3d-point x2 y2 0) (vlax-3d-point lx ly 0) rot))
   (vla-put-Layer d "A-DIMS") (vla-put-ScaleFactor d sc) (lpc-x d))
+(defun lpc-h (lay pat sc pts / pl h arr)
+  (lpc-pl lay pts 1 0)
+  (setq pl (vlax-ename->vla-object (entlast)))
+  (setq h (vla-AddHatch lpc-ms 1 pat :vlax-false))
+  (setq arr (vlax-make-safearray vlax-vbObject '(0 . 0)))
+  (vlax-safearray-put-element arr 0 pl)
+  (vla-AppendOuterLoop h arr)
+  (if (/= pat "SOLID") (vla-put-PatternScale h sc))
+  (vla-put-Layer h lay) (vla-Evaluate h) (lpc-x h) (vla-Delete pl))
 (defun lpc-frame (x y f attrs / b a v)
   (setq b (vla-InsertBlock lpc-ms (vlax-3d-point x y 0) "%(block)s" f f f 0))
   (vla-put-Layer b "A-ANNO-TTLB")
@@ -295,6 +358,11 @@ class SetBuilder:
                           ("ລະດັບຫຼັງຄາສູງສຸດ", z("07", "max", 2))):
             if val is not None:
                 self.levels.append((name, round(val)))
+        floors = self.p.get("floors") or []
+        if any("level" in fl for fl in floors):
+            keep = [l for l in self.levels if l[0] in ("ລະດັບດິນທຳມະຊາດ", "ລະດັບຫຼັງຄາສູງສຸດ")]
+            self.levels = sorted(keep + [("ລະດັບພື້ນ " + fl["name"], fl["level"]) for fl in floors if "level" in fl],
+                                 key=lambda l: l[1])
         self.grids = self.find_grids()
         self.openings = self.find_openings()
 
@@ -327,7 +395,8 @@ class SetBuilder:
                     types[key] = "%s%d" % (typ, n)
                 res.append({"tag": types[key], "name": k["name"], "w": round(w), "h": round(h),
                             "sill": (lambda v: 0 if abs(v) < 50 else v)(round(k["min"][2] - (self.levels[1][1] if len(self.levels) > 1 else 0))),
-                            "x": (k["min"][0] + k["max"][0]) / 2, "y": (k["min"][1] + k["max"][1]) / 2})
+                            "x": (k["min"][0] + k["max"][0]) / 2, "y": (k["min"][1] + k["max"][1]) / 2,
+                            "z0": k["min"][2], "z1": k["max"][2]})
         return res
 
     # ------------- transforms
@@ -473,8 +542,10 @@ class SetBuilder:
         horiz = abs(b[0] - a[0]) >= abs(b[1] - a[1])
         self.L.dim(a[0] + dx, a[1] + dy, b[0] + dx, b[1] + dy, l[0] + dx, l[1] + dy, 0.0 if horiz else math.pi / 2, scale)
 
-    def opening_tags(self, dx, dy, scale):
+    def opening_tags(self, dx, dy, scale, z=None):
         for o in self.openings:
+            if z is not None and not (o["z0"] - 1 < z < o["z1"] + 1):
+                continue
             x, y = self.tplan(o["x"], o["y"])
             x, y = x + dx, y + dy
             r = 3.5 * scale
@@ -554,7 +625,7 @@ class SetBuilder:
                 self.L.solid([(px + dx, py + dy) for px, py in pts], "S-COLS-CUT")
 
     def plan_sheet(self, no, title, segs, extra=None, dims=True, tags=True, sections=True, scale=None, note=None,
-                   reserve=0.0, fill=None):
+                   reserve=0.0, fill=None, tag_z=None):
         """reserve: frame units kept free on the right (legend column)."""
         bb = bbox(segs)
         sc = scale or self.pick_scale(bb[2] - bb[0] + 30 * 75, bb[3] - bb[1] + 30 * 75, reserve=reserve)
@@ -570,7 +641,7 @@ class SetBuilder:
         if dims:
             self.plan_dims(dx, dy, sc)
         if tags:
-            self.opening_tags(dx, dy, sc)
+            self.opening_tags(dx, dy, sc, tag_z)
         if sections:
             self.section_marks(dx, dy, sc)
         self.north_arrow(sh)
@@ -602,7 +673,25 @@ class SetBuilder:
             self.L.circle(x, ybot + dy + r, r, "A-GRID-IDEN")
             self.L.text(x, ybot + dy + r, r, lab, "A-GRID-IDEN", 5)
 
-    def elev_sheet(self, no, title, segs, levels=True, view=None):
+    HATCH = {"01": "ANSI31", "02": "ANSI31", "03": "ANSI31", "13": "ANSI31", "00": "ANSI31",
+             "08": "ANSI31", "04": "SOLID", "05": "SOLID", "06": "SOLID"}
+
+    def section_hatch(self, raw, dx, dy, scale):
+        by = defaultdict(list)
+        for s in raw:
+            if len(s) > 5 and s[5] == "cut" and s[4] in self.HATCH:
+                by[s[4]].append(s[:4])
+        n = 0
+        for code, segs in by.items():
+            for loop in closed_loops(segs):
+                if poly_area(loop) < 400 or len(loop) > 200:
+                    continue
+                pat = self.HATCH[code]
+                self.L.hatch([(x + dx, y + dy) for x, y in loop], "A-HATCH", pat, 0.6 * scale)
+                n += 1
+        return n
+
+    def elev_sheet(self, no, title, segs, levels=True, view=None, raw=None):
         segs = [(a, b, c, d, "S-BELOW-GRADE" if max(b, d) < -20 else lay) for a, b, c, d, lay in segs
                 if not (max(b, d) < -20 and lay in ("P-PIPE", "P-SANR"))]
         bb = bbox(segs)
@@ -629,6 +718,8 @@ class SetBuilder:
             self.levels_elev(dx, dy, bb[2] + 1000, sc)
         if view:
             self.elev_grids(view, dx, dy, y0 - 12 * sc, sc)
+        if raw:
+            sh["hatches"] = self.section_hatch(raw, dx, dy, sc)
         f = sc / 100.0
         self.view_title(sh, (sh["x"] + (AREA[0] + AREA[2]) / 2 * f), sh["y"] + 6100 * f, title, sc)
         return sh
@@ -662,13 +753,21 @@ class SetBuilder:
         archi = None
         # --- A2 plans
         arch = {"03", "04", "05", "07", "08", "09", "10", "11", "12", "13", "15", "16", "19", "20"}
-        self.plan_sheet("A201", "ແຜນຜັງ ຊັ້ນ 1", self.plan_segs(plan["segs"], codes=arch), fill=(["04", "08"], plan["z"]))
-        self.plan_sheet("A202", "ແຜນຜັງ ບອກໄລຍະ ແລະ ປະຕູ-ປ່ອງຢ້ຽມ",
-                        self.plan_segs(plan["segs"], codes=arch, kinds={"cut"}) +
-                        self.plan_segs(plan["segs"], codes={"03", "13", "10", "11"}, kinds={"beyond"}),
-                        fill=(["04", "08"], plan["z"]))
+        floors = self.p.get("floors") or [{"name": "ຊັ້ນ 1", "cut": plan["z"]}]
+        num = 201
+        for fl in floors:
+            pl = min(m["plans"], key=lambda p: abs(p["z"] - fl["cut"]))
+            self.plan_sheet("A%d" % num, "ແຜນຜັງ " + fl["name"], self.plan_segs(pl["segs"], codes=arch),
+                            fill=(["04", "08"], pl["z"]), tag_z=pl["z"])
+            num += 1
+        if len(floors) == 1:
+            self.plan_sheet("A%d" % num, "ແຜນຜັງ ບອກໄລຍະ ແລະ ປະຕູ-ປ່ອງຢ້ຽມ",
+                            self.plan_segs(plan["segs"], codes=arch, kinds={"cut"}) +
+                            self.plan_segs(plan["segs"], codes={"03", "13", "10", "11"}, kinds={"beyond"}),
+                            fill=(["04", "08"], plan["z"]), tag_z=plan["z"])
+            num += 1
         roofc = {"03", "04", "05", "06", "07", "08", "09", "11", "13", "20"}
-        self.plan_sheet("A203", "ແຜນຜັງ ຫຼັງຄາ", self.plan_segs(m["views"]["top"]["segs"], codes=roofc),
+        self.plan_sheet("A%d" % num, "ແຜນຜັງ ຫຼັງຄາ", self.plan_segs(m["views"]["top"]["segs"], codes=roofc),
                         tags=False, sections=False)
         # --- A3 elevations + sections
         names = {"front": ("A301", "ຮູບດ້ານໜ້າ"), "back": ("A302", "ຮູບດ້ານຫຼັງ"),
@@ -677,7 +776,7 @@ class SetBuilder:
             self.elev_sheet(no, t, self.elev_segs(m["views"][k]["segs"]), view=k)
         for i, s in enumerate(m.get("sections", [])):
             self.elev_sheet("A31%d" % (i + 1), "ຮູບຕັດ %s" % s["name"], self.elev_segs(s["segs"]),
-                            view=s["name"] if s.get("look", 1) > 0 else None)
+                            view=s["name"] if s.get("look", 1) > 0 else None, raw=s["segs"])
         # --- A4 schedule
         self.schedule_sheet()
         # --- B structure
