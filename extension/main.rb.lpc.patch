@@ -1,0 +1,46 @@
+--- main.rb.orig
++++ main.rb
+@@ -271,11 +271,37 @@
+         raise 'Image dimensions must be 64..4096' unless width.between?(64, 4096) && height.between?(64, 4096)
+         raise 'Image export failed' unless model.active_view.write_image(filename: path, width: width, height: height, antialias: true)
+         { path: path }
++      when 'lpc_extract'
++        lpc_extract(a)
+       else
+         raise "Unknown command: #{command}"
+       end
+     end
+ 
++    # lao-permit-cad drawing extraction (bundled lpc_extract.rb). Data-only arguments; runs on
++    # the next UI tick so it is not bound by the bridge timeout. Progress and result go to
++    # <out>/<model>/status.json and model.json; the model is left unchanged.
++    def lpc_extract(a)
++      cuts = a.fetch('cuts', [1500])
++      raise 'cuts: 1..6 numbers (mm)' unless cuts.is_a?(Array) && cuts.length.between?(1, 6) && cuts.all? { |v| v.is_a?(Numeric) && v.finite? && v.abs < 1e6 }
++      skip = a.fetch('skip', ['17 '])
++      raise 'skip: up to 50 strings' unless skip.is_a?(Array) && skip.length <= 50 && skip.all? { |v| v.is_a?(String) && v.length <= 100 }
++      hidden = a.fetch('hidden', true)
++      raise 'hidden: boolean' unless [true, false].include?(hidden)
++      sections = a.fetch('sections', 'auto')
++      raise "sections: 'auto' or 'none'" unless %w[auto none].include?(sections)
++      job = SecureRandom.hex(6)
++      args = { 'cuts' => cuts, 'skip' => skip, 'hidden' => hidden, 'sections' => sections, 'job' => job }
++      UI.start_timer(0.1, false) do
++        begin
++          LaoPermitExtract.run(args)
++        rescue StandardError => e
++          warn "lpc_extract: #{e.class}: #{e.message}"
++        end
++      end
++      { started: true, job: job }
++    end
++
+     def test_box
+       model = Sketchup.active_model
+       raise 'Exit group/component editing first.' if model.active_path
+@@ -301,4 +327,5 @@
+ end
+ 
+ require_relative 'importer'
++require_relative 'lpc_extract'
+ 

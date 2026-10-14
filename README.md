@@ -3,6 +3,12 @@
 ເຄື່ອງມືແຕ້ມ **ແບບຂໍອະນຸຍາດປຸກສ້າງ / Shop drawing** ຈາກໂມເດວ SketchUp ລົງ AutoCAD 2025 ອັດຕະໂນມັດ —
 1 ຄຳສັ່ງ ໄດ້ຊຸດແບບ A3 ຄົບ (DWG + PDF) ພ້ອມ QA.
 
+## ຕິດຕັ້ງຄັ້ງທຳອິດ (ເຄື່ອງໃໝ່)
+1. ຕິດຕັ້ງ extension HTML MCP v2 ໃນ SketchUp 2025.
+2. ເພີ່ມຄຳສັ່ງ `lpc_extract` ໃສ່ extension: `powershell -File extension\install.ps1`
+   (copy `tools\lpc_extract.rb` + patch `main.rb`, ສຳຮອງເປັນ `main.rb.pre-lpc.bak`), ແລ້ວ restart SketchUp.
+3. `pip install --user pypdf` (ລວມ PDF).
+
 ## ໃຊ້ງານ (1 ຄຳສັ່ງ)
 ກ່ອນ: ເປີດ SketchUp + ໂມເດວ, **Extensions > HTML MCP v2 > Start bridge**; ເປີດ AutoCAD 2025.
 ```powershell
@@ -29,6 +35,7 @@ powershell -File tools\build.ps1 -Project projects\seathis\project.json -Pdf
 | Path | ເນື້ອໃນ |
 |---|---|
 | `tools/build.ps1` | ຄຳສັ່ງດຽວ ທັງ pipeline |
+| `extension/` | patch `main.rb` ຂອງ HTML MCP v2 (ຄຳສັ່ງ `lpc_extract`) + `install.ps1` |
 | `tools/lpc_extract.rb` | Extractor v2 (ຕິດຕັ້ງໃນ extension HTML MCP v2 ເປັນຄຳສັ່ງ `lpc_extract`) |
 | `tools/lpc_bridge.mjs` | ສັ່ງ extract ຜ່ານ bridge port 32124, ລໍ status |
 | `tools/build_set.py` | model.json + project.json → AutoLISP ທັງຊຸດ (ກອບ `LPC_A3_V1` ມີ attribute) |
