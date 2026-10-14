@@ -1,0 +1,17 @@
+﻿LN_3	w=0	closed=True	192
+colum+beam section	w=0	closed=True	31
+0	w=0	closed=True	27
+0	w=0	closed=False	19
+colum+beam section	w=0	closed=False	9
+Earth	w=60	closed=False	8
+LN_3	w=0	closed=False	7
+A-ANNO-SYMBOL	w=0	closed=True	5
+6	w=0	closed=True	4
+Defpoints	w=0	closed=True	2
+Khrb	w=0	closed=True	2
+AD Layer 0.9	w=0	closed=True	2
+NOITHAT	w=0	closed=False	2
+A-ANNO-DETAIL REF	w=50	closed=True	1
+A-BRAKE LINE	w=0	closed=False	1
+A-ANNO-MATCHLINE	w=30	closed=False	1
+A-ANNO-REVISION	w=15	closed=True	1
