@@ -61,12 +61,14 @@ function Get-NextSheetOrigin([double]$RowY, [int]$Scale) {
 }
 
 # Level mark text: 'ລະດັບຄໍດິນ ບສລ (+600)'. Places tick line + Saysettha text on A-FLOR-LEVL.
-function Add-LevelMark([double]$X, [double]$Y, [string]$NameLao, [int]$LevelMm, [double]$Len = 3000) {
+function Add-LevelMark([double]$X, [double]$Y, [string]$NameLao, [int]$LevelMm, [double]$Len = 3000, [switch]$Below) {
     $lay = (Use-Layer 'A-FLOR-LEVL' 51).Name
     $ln = $script:MS.AddLine((P $X $Y), (P ($X + $Len) $Y)); $ln.Layer = $lay
     $sign = if ($LevelMm -eq 0) { '±' } elseif ($LevelMm -gt 0) { '+' } else { '' }
     $txt = "$NameLao ($sign$(if($LevelMm -eq 0){'00'}else{$LevelMm}))"
-    $t = $script:MS.AddMText((P ($X + 200) ($Y + 400)), 0, "{\fSaysettha OT|b0|i0|c0|p2;$txt}"); $t.Height = 210; $t.Layer = $lay
+    $ty = if ($Below) { $Y - 60 } else { $Y + 400 }   # Below: for marks closer than ~500 to the next one
+    # Phetsarath OT inline: Saysettha OT only renders through a text style, not an inline \f code
+    $t = $script:MS.AddMText((P ($X + 200) $ty), 0, "{\fPhetsarath OT|b0|i0|c0|p2;$txt}"); $t.Height = 210; $t.Layer = $lay
     $t
 }
 
