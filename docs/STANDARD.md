@@ -102,6 +102,23 @@ Floor finish marks on plans: `+550mm`, `+600mm` (layer `Dimention`).
 - Dimstyle actually used: `100` (DIMSCALE 100, DIMTXT 1.5, ArchTick, Times New Roman) with per-dim scale 100/175.
 - Reusable code & docs: repo folder `D:\ANS\Claude\CAD train AI\lao-permit-cad` (module `tools/LaoPermitCad.psm1`: Connect-Acad, New-PermitSheet, Get-NextSheetOrigin, Add-LevelMark, Add-Callout, Import-ViewDwg; `docs/SKETCHUP-TO-CAD.md` for drawing from a SketchUp model).
 
+## 0. FROM A SKETCHUP MODEL → FULL SET (use this first)
+Repo `D:\ANS\Claude\CAD train AI\lao-permit-cad` (GitHub private: anousaksiritham-creator/lao-permit-cad).
+1. User: open the .skp in SketchUp 2025, Extensions > HTML MCP v2 > Start bridge (port 32124); AutoCAD 2025 running.
+2. Create `projects/<name>/project.json` (copy projects/seathis): id, name (Lao), location, owner, designer, date,
+   model_dir (= .skp file name without extension), dwg_name, extract {cuts, skip, hidden, sections}, optional
+   floors [{name, cut, level}] for multi-storey.
+3. `powershell -File tools\build.ps1 -Project projects\<name>\project.json -Pdf` → out\<model>\: DWG, merged PDF,
+   png previews, qa.json (~20 s + extraction ~40 s). Re-running replaces the previous build (XDATA "LPC" = id).
+4. ALWAYS look at out\<model>\png\*.png before reporting; fix build_set.py and rebuild with -SkipExtract.
+5. Model must follow docs/MODEL-CONVENTION.md (top-level "NN name" codes 00–20, children "TYPE-NN desc").
+6. Extractor code is tools/lpc_extract.rb, bundled in the extension (Plugins\sketchup_html_mcp_v2) as bridge
+   command `lpc_extract`. After editing it: copy to the Plugins folder AND ask the user to paste in the Ruby Console
+   `load 'D:/ANS/Claude/CAD train AI/lao-permit-cad/tools/lpc_extract.rb'` (or restart SketchUp).
+   The bridge deliberately cannot run arbitrary Ruby.
+7. Pitfalls: python -I ignores user site-packages (merge_pdf.py runs without -I); PowerShell 5.1 has no `??` and
+   mangles JSON quotes in native args (pass a file); LISP file paths must be absolute; Lao text in LISP = \U+XXXX.
+
 ## 8. Workflow for adding a missing sheet
 1. `status` → confirm `ແບບ.dwg` active, INSUNITS 4.
 2. Find the next free slot in the right row; insert frame `A$C2875ed45` at the sheet scale factor (§2).
