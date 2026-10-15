@@ -1,0 +1,2 @@
+# Offline preparation/tests use only the Python standard library.
+pywin32>=306; sys_platform == "win32"
