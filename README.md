@@ -4,6 +4,9 @@
 1 ຄຳສັ່ງ ໄດ້ຊຸດແບບ A3 ຄົບ (DWG + PDF) ພ້ອມ QA.
 
 ## ຕິດຕັ້ງຄັ້ງທຳອິດ (ເຄື່ອງໃໝ່)
+
+ສຳລັບການສັ່ງ AutoCAD 2025 ຜ່ານ MCP client, ມີ [AutoCAD MCP 2025](mcp/autocad/README-LAO.md) ພ້ອມ 25 tools ແລະຄູ່ມືຕິດຕັ້ງ. ສ່ວນນີ້ເປັນທາງເລືອກ ແຍກຈາກ pipeline SketchUp → CAD ຂ້າງລຸ່ມ.
+
 1. ຕິດຕັ້ງ extension HTML MCP v2 ໃນ SketchUp 2025.
 2. ເພີ່ມຄຳສັ່ງ `lpc_extract` ໃສ່ extension: `powershell -File extension\install.ps1`
    (copy `tools\lpc_extract.rb` + patch `main.rb`, ສຳຮອງເປັນ `main.rb.pre-lpc.bak`), ແລ້ວ restart SketchUp.
