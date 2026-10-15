@@ -4,3 +4,4 @@ cad_views/
 out/
 __pycache__/
 *.pyc
+.venv/
