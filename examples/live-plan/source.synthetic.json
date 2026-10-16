@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "units": "mm",
+  "title": "Synthetic demo",
+  "cut_mm": 1500,
+  "objects": [],
+  "hidden": [],
+  "segments": [
+    {"a":[0,0],"b":[6000,0],"kind":"cut","path":[{"id":1,"name":"Wall_N"}]},
+    {"a":[6000,0],"b":[6000,150],"kind":"cut","path":[{"id":1,"name":"Wall_N"}]},
+    {"a":[6000,150],"b":[0,150],"kind":"cut","path":[{"id":1,"name":"Wall_N"}]},
+    {"a":[0,150],"b":[0,0],"kind":"cut","path":[{"id":1,"name":"Wall_N"}]},
+    {"a":[-75,0],"b":[75,0],"kind":"cut","path":[{"id":2,"name":"Column_A"}]},
+    {"a":[75,0],"b":[75,150],"kind":"cut","path":[{"id":2,"name":"Column_A"}]},
+    {"a":[75,150],"b":[-75,150],"kind":"cut","path":[{"id":2,"name":"Column_A"}]},
+    {"a":[-75,150],"b":[-75,0],"kind":"cut","path":[{"id":2,"name":"Column_A"}]},
+    {"a":[5925,0],"b":[6075,0],"kind":"cut","path":[{"id":3,"name":"Column_B"}]},
+    {"a":[6075,0],"b":[6075,150],"kind":"cut","path":[{"id":3,"name":"Column_B"}]},
+    {"a":[6075,150],"b":[5925,150],"kind":"cut","path":[{"id":3,"name":"Column_B"}]},
+    {"a":[5925,150],"b":[5925,0],"kind":"cut","path":[{"id":3,"name":"Column_B"}]}
+  ]
+}

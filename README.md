@@ -1,5 +1,11 @@
 # lao-permit-cad
 
+## ໃໝ່: ແຕ້ມໃນ AutoCAD ໂດຍກົງ + QA
+
+`tools/live_plan/` ເພີ່ມ workflow ສຳລັບ **editable CAD entities ໃນ AutoCAD 2025 ທີ່ເປີດຢູ່**: actual SketchUp cuts, ຝາ–ເສົາ, native dimension/grid, Draw Order ແລະ QA ຈາກ entities ຈິງ. ສ້າງ drawing ໃໝ່ແລະຮັກສາແບບເກົ່າ; ບໍ່ຈົບດ້ວຍໄຟລ໌ໃຫ້ຜູ້ໃຊ້ເປີດເອງ.
+
+ເບິ່ງ **[ຄູ່ມື Live Plan + QA](docs/LIVE-PLAN.md)** ແລະ [synthetic config](examples/live-plan/config.synthetic.json). ໂມດູນ v0.1 ແຍກຈາກ pipeline ເດີມດ້ານລຸ່ມ; ສ່ວນທີ່ຍັງບໍ່ຢືນຢັນຈະລາຍງານ UNVERIFIED ແລະບໍ່ອ້າງວ່າເປັນແບບກໍ່ສ້າງທີ່ຮັບຮອງແລ້ວ.
+
 ເຄື່ອງມືແຕ້ມ **ແບບຂໍອະນຸຍາດປຸກສ້າງ / Shop drawing** ຈາກໂມເດວ SketchUp ລົງ AutoCAD 2025 ອັດຕະໂນມັດ —
 1 ຄຳສັ່ງ ໄດ້ຊຸດແບບ A3 ຄົບ (DWG + PDF) ພ້ອມ QA.
 
