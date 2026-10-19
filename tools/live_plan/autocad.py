@@ -69,9 +69,12 @@ class AutoCAD2025:
             time.sleep(.2)
         raise UncertainMutation('New drawing not uniquely confirmed. Do not retry Add(); inspect AutoCAD.') from creation_error
 
-    def draw(self, plan, output, work_dir, timeout=120):
-        output, work_dir = Path(output).resolve(), Path(work_dir).resolve()
-        if output.suffix.lower() != '.dwg' or output.exists():
+    def draw(self, plan, output=None, work_dir=None, timeout=120):
+        if work_dir is None:
+            raise ValueError('Internal work_dir is required')
+        output = Path(output).resolve() if output is not None else None
+        work_dir = Path(work_dir).resolve()
+        if output is not None and (output.suffix.lower() != '.dwg' or output.exists()):
             raise ValueError('Choose a new .dwg path; existing drawings are never overwritten')
         font = Path(plan['font_file'])
         if not font.is_absolute():
@@ -88,7 +91,8 @@ class AutoCAD2025:
         before = self.status()
         if self.read(lambda: self.application.ActiveDocument.GetVariable('LISPSYS')) == 0:
             raise RuntimeError('Set LISPSYS=1 and restart AutoCAD before using UTF-8 live batches')
-        output.parent.mkdir(parents=True, exist_ok=True)
+        if output is not None:
+            output.parent.mkdir(parents=True, exist_ok=True)
         doc = self.new_empty(before)
         name = self.read(lambda: doc.Name)
         if self.status()['active'] != name:
@@ -97,10 +101,11 @@ class AutoCAD2025:
         script.write_text(render(plan, name, output, snapshot, receipt, run), encoding='utf-8')
         (job/'plan.json').write_text(json.dumps(plan,ensure_ascii=False,indent=2),encoding='utf-8')
         (job/'before.json').write_text(json.dumps(before,ensure_ascii=False,indent=2),encoding='utf-8')
-        submitted = {'run_id':run,'target':name,'output':str(output),'state':'SUBMITTING_ONCE'}
+        submitted = {'run_id':run,'target':name,'output':str(output) if output is not None else None,'state':'SUBMITTING_ONCE'}
         (job/'run.json').write_text(json.dumps(submitted,indent=2),encoding='utf-8')
-        # Use the generated command as code; JSON quoting also escapes LISP quotes.
-        command = '(load '+json.dumps(str(script).replace('\\','/'),ensure_ascii=False)+')\n'
+        # Generated source is already guarded. Inline execution avoids LOAD trust
+        # prompts and SCRIPT file-selection dialogs without weakening SECURELOAD.
+        command = script.read_text(encoding='utf-8') + '\n'
         try:
             doc.SendCommand(command)
         except Exception as error:
@@ -128,4 +133,7 @@ class AutoCAD2025:
         now = {(d['name'],d['path']):d['entities'] for d in after['documents']}
         if any(now.get(k) != count for k,count in prior.items()):
             raise RuntimeError('A prior drawing changed or closed during the run; investigate before claiming preservation')
+        submitted.update(state='DRAWN_AND_SAVED' if output is not None else 'DRAWN_UNSAVED',
+                         actual_readback=str(snapshot), save_requested=output is not None)
+        (job/'run.json').write_text(json.dumps(submitted,indent=2),encoding='utf-8')
         return actual, job

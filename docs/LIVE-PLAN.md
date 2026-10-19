@@ -1,8 +1,23 @@
 # Live plan + QA (v0.1)
 
+## Update 2026-10-19: live unsaved by default
+
+`draw` ບໍ່ບັງຄັບ `--output` ອີກແລ້ວ. ຖ້າບໍ່ລະບຸ output ຈະແຕ້ມໃນແຜ່ນໃໝ່ທີ່ຍັງບໍ່ save ໃນ AutoCAD:
+
+```powershell
+python -m tools.live_plan draw examples/live-plan/source.synthetic.json --config examples/live-plan/config.synthetic.json --work .live-runs
+```
+
+`--output new.dwg` ແມ່ນການຂໍ SaveAs ແບບ explicit; ຮັກສາການຫ້າມຂຽນທັບໄຟລ໌ເກົ່າ.
+ສົ່ງຄຳສັ່ງ inline ຈາກ generated source ແທນ LOAD; ບໍ່ປ່ຽນ SECURELOAD ແລະບໍ່ເປີດ SCRIPT dialog.
+ຜົນ QA ກວດ `save_policy` ໃນ unsaved mode; ບໍ່ໄດ້ຫຼຸດການກວດ source geometry, dimensions ຫຼື Draw Order.
+ຫົວແກນຢູ່ນອກຈຸດ dimension ທີ່ໄກສຸດ. Dimension ໃຊ້ text 250 mm / arrow 150 mm ທີ່ model 1:1 ເປັນ drafting policy ສຳລັບກວດທີ່ 1:100, ບໍ່ແມ່ນຂໍ້ກຳນົດກົດໝາຍ.
+
+
+
 ໂມດູນນີ້ເກັບຄວາມສາມາດຈາກວຽກແຕ້ມຈິງ: ດຶງ geometry ຈາກ SketchUp, ແຕ້ມ editable entities ໃນ **AutoCAD 2025 ໂດຍກົງ**, ແລະກວດ QA ຈາກ entities ທີ່ແຕ້ມແລ້ວ. ຜົນຫຼັກແມ່ນ drawing ທີ່ປາກົດໃນ AutoCAD; JSON/LISP ເປັນໄຟລ໌ພາຍໃນ.
 
-ຮຸ່ນນີ້ເປັນ developer toolkit. ບໍ່ໄດ້ອ້າງວ່າທຸກໂມເດວຈະກາຍເປັນແບບກໍ່ສ້າງອັດຕະໂນມັດ. ມັນເພີ່ມ workflow ໃໝ່; ບໍ່ປ່ຽນ pipeline `tools/build.ps1` ເດີມ.
+ຮຸ່ນນີ້ເປັນ developer toolkit. ບໍ່ໄດ້ອ້າງວ່າທຸກໂມເດວຈະກາຍເປັນແບບກໍ່ສ້າງອັດຕະໂນມັດ. ມັນເປັນ workflow ຫຼັກສຳລັບ live geometry; pipeline `tools/build.ps1` ກໍໃຊ້ default ບໍ່ save ເຊັ່ນກັນ.
 
 ## ຕິດຕັ້ງ
 

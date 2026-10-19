@@ -6,7 +6,7 @@ import unittest
 
 from tools.live_plan.geometry import verified_rectangle, revise_rect, reconcile_junctions, regions, area, merge_lines
 from tools.live_plan.plan import build_plan
-from tools.live_plan.render import render
+from tools.live_plan.render import render, grid_limits
 from tools.live_plan.qa import audit
 from tools.live_plan.autocad import AutoCAD2025, UncertainMutation
 
@@ -181,6 +181,32 @@ class PipelineTests(unittest.TestCase):
         entity['override']='';entity['p2']=[3100,0,0]
         report=audit(plan,actual)
         self.assertEqual(next(c['status'] for c in report['checks'] if c['check']=='dimensions_and_witnesses'),'FAIL')
+
+
+class UnsavedPolicyTests(unittest.TestCase):
+    def test_unsaved_render_has_no_drawing_write(self):
+        source,config=load_example();plan=build_plan(source,config)
+        code=render(plan,'Scratch',None,Path('actual.json'),Path('receipt.json'),'test')
+        self.assertNotIn('vla-SaveAs',code)
+        self.assertNotIn('findfile "None"',code)
+        self.assertIn('lpc-live-save-requested nil',code)
+        balanced_lisp(code)
+        saved=render(plan,'Scratch',Path('explicit.dwg'),Path('actual.json'),Path('receipt.json'),'test')
+        self.assertIn('vla-SaveAs',saved)
+    def test_unsaved_readback_is_valid_without_a_saved_dwg(self):
+        source,config=load_example();plan=build_plan(source,config)
+        actual={'save_requested':False,'saved':False,'drawing':'','units':4,'entities':[],'order':[]}
+        r=audit(plan,actual)
+        self.assertEqual(next(c['status'] for c in r['checks'] if c['check']=='save_policy'),'PASS')
+        actual['drawing']='unexpected.dwg'
+        r=audit(plan,actual)
+        self.assertEqual(next(c['status'] for c in r['checks'] if c['check']=='save_policy'),'FAIL')
+    def test_heads_outside_outer_dimensions(self):
+        source,config=load_example();plan=build_plan(source,config)
+        plan['dimensions'].append({'position':[-3000,-2500]})
+        x0,y0,x1,y1=grid_limits(plan)
+        self.assertLess(x0+220,-3000)
+        self.assertLess(y0+220,-2500)
 
 
 if __name__=='__main__':unittest.main()

@@ -1,9 +1,9 @@
 name: Live plan offline tests
 on:
   push:
-    paths: ['tools/live_plan/**', 'tests/**', 'examples/live-plan/**', '.github/workflows/live-plan-tests.yml']
+    paths: ['tools/**', 'tests/**', 'examples/live-plan/**', '.github/workflows/live-plan-tests.yml']
   pull_request:
-    paths: ['tools/live_plan/**', 'tests/**', 'examples/live-plan/**', '.github/workflows/live-plan-tests.yml']
+    paths: ['tools/**', 'tests/**', 'examples/live-plan/**', '.github/workflows/live-plan-tests.yml']
 permissions:
   contents: read
 jobs:

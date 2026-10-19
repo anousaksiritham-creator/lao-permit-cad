@@ -65,7 +65,7 @@ HELPERS = r'''
 (defun lpc-live-dim (a b p rotation / e)
  (setq e (vla-AddDimAligned lpc-live-ms (vlax-3d-point a) (vlax-3d-point b) (vlax-3d-point p)))
  (vla-put-Layer e "A-DIMS") (vla-put-TextStyle e "LPC-LIVE-TEXT")
- (vla-put-TextHeight e 240.0) (vla-put-ArrowheadSize e 110.0)
+ (vla-put-TextHeight e 250.0) (vla-put-ArrowheadSize e 150.0)
  (vla-put-ScaleFactor e 1.0) (vla-put-LinearScaleFactor e 1.0)
  (vla-put-TextGap e 70.0) (vla-put-ExtensionLineOffset e 80.0)
  (vla-put-ExtensionLineExtend e 120.0) (vla-put-PrimaryUnitsPrecision e 0)
@@ -107,6 +107,7 @@ HELPERS = r'''
  (setq f (open path "w" "utf8") comma "")
  (write-line (strcat "{\"run_id\":" (lpc-live-json-string lpc-live-run)
   ",\"drawing\":" (lpc-live-json-string (vla-get-FullName lpc-live-doc))
+  ",\"save_requested\":" (lpc-live-bool lpc-live-save-requested)
   ",\"units\":" (itoa (getvar "INSUNITS")) ",\"saved\":" (lpc-live-bool (= :vlax-true (vla-get-Saved lpc-live-doc)))
   ",\"entities\":[") f)
  (vlax-for e lpc-live-ms (write-line (strcat comma (lpc-live-entity-json e)) f) (setq comma ","))
@@ -126,17 +127,30 @@ HELPERS = r'''
 '''
 
 
+def grid_limits(plan):
+    """Bubble centers sit outside dimension locations, plus readable clearance."""
+    grid=plan.get('grid')
+    if not grid:
+        return None
+    xs=[float(item['value']) for item in grid['x']]
+    ys=[float(item['value']) for item in grid['y']]
+    for dim in plan['dimensions']:
+        xs.append(float(dim['position'][0]))
+        ys.append(float(dim['position'][1]))
+    return min(xs)-1600, min(ys)-1600, max(xs)+1600, max(ys)+1600
+
+
 def render(plan, drawing_name, output, snapshot_path, receipt_path, run_id):
     """The script refuses existing drawings, existing output files and nonempty models."""
     header = HELPERS
+    save_requested = output is not None
     points = [p for line in plan['lines'] for p in (line['a'],line['b'])]
     points += [p for s in plan['solids'] for p in s['outer']]
     points += [d['position'] for d in plan['dimensions']]
     points += [t['position'] for t in plan['labels']]
     if plan.get('grid'):
-        g = plan['grid']
-        points += [(float(g['x'][0]['value'])-1820, float(g['y'][0]['value'])-1820),
-                   (float(g['x'][-1]['value'])+1820, float(g['y'][-1]['value'])+1820)]
+        x0,y0,x1,y1=grid_limits(plan)
+        points += [(x0-220,y0-220),(x1+220,y1+220)]
     lo = [min(p[k] for p in points) for k in (0,1)]
     hi = [max(p[k] for p in points) for k in (0,1)]
     if plan.get('sheet') and (hi[0]-lo[0]+1000 > 39200 or hi[1]-lo[1]+1000 > 23400):
@@ -147,7 +161,8 @@ def render(plan, drawing_name, output, snapshot_path, receipt_path, run_id):
         '(setq lpc-live-old-error *error*)',
         '(defun *error* (msg / f) (setq f (open lpc-live-receipt "w" "utf8")) (if f (progn (write-line (strcat "{" (lpc-live-json-string "run_id") ":" (lpc-live-json-string lpc-live-run) "," (lpc-live-json-string "status") ":" (lpc-live-json-string "FAILED") "," (lpc-live-json-string "stage") ":" (lpc-live-json-string lpc-live-stage) "," (lpc-live-json-string "error") ":" (lpc-live-json-string msg) "}") f) (close f))) (setq *error* lpc-live-old-error) (princ msg) (princ))',
         f'(if (or (/= (getvar "DWGNAME") {string(drawing_name)}) (/= (vla-get-Count lpc-live-ms) 0)) (error "Wrong or nonempty target drawing"))',
-        f'(if (findfile {string(str(output).replace(chr(92), "/"))}) (error "Output drawing already exists"))',
+        *( [f'(if (findfile {string(str(output).replace(chr(92), "/"))}) (error "Output drawing already exists"))'] if save_requested else [] ),
+        '(setq lpc-live-save-requested '+('T' if save_requested else 'nil')+')',
         '(setvar "TILEMODE" 1) (setvar "INSUNITS" 4) (setvar "MEASUREMENT" 1) (setvar "LWDISPLAY" 1)',
         '(setq lpc-live-stage "font" lpc-live-style (vla-Add (vla-get-TextStyles lpc-live-doc) "LPC-LIVE-TEXT"))',
         f'(vla-put-FontFile lpc-live-style {string(plan["font_file"])}) (vla-put-Height lpc-live-style 0.0)',
@@ -173,8 +188,7 @@ def render(plan, drawing_name, output, snapshot_path, receipt_path, run_id):
         body.append(f'(lpc-live-text {string(label["text"])} {xyz(label["position"])} {number(label["height"])} {string(label["layer"])})')
     grid = plan.get('grid')
     if grid:
-        x0, x1 = float(grid['x'][0]['value'])-1600, float(grid['x'][-1]['value'])+1600
-        y0, y1 = float(grid['y'][0]['value'])-1600, float(grid['y'][-1]['value'])+1600
+        x0,y0,x1,y1=grid_limits(plan)
         body.extend(['(if (vl-catch-all-error-p (vl-catch-all-apply \'vla-Item (list (vla-get-Linetypes lpc-live-doc) "CENTER2"))) (vla-Load (vla-get-Linetypes lpc-live-doc) "CENTER2" "acadiso.lin"))',
                      '(vla-put-Linetype (vla-Item (vla-get-Layers lpc-live-doc) "A-GRID") "CENTER2")'])
         for axis in ('x','y'):
@@ -190,10 +204,10 @@ def render(plan, drawing_name, output, snapshot_path, receipt_path, run_id):
         body.extend(_sheet())
     body.extend([
         '(setq lpc-live-table (lpc-live-order))',
-        '(setq lpc-live-stage "save")',
+        '(setq lpc-live-stage "live-finalize")',
         '(setvar "TILEMODE" 1) (command "_.REGEN" "_.ZOOM" "_E")',
-        f'(if (findfile {string(str(output).replace(chr(92), "/"))}) (error "Output drawing appeared; refusing overwrite"))',
-        f'(vla-SaveAs lpc-live-doc {string(str(output).replace(chr(92), "/"))})',
+        *([f'(if (findfile {string(str(output).replace(chr(92), "/"))}) (error "Output drawing appeared; refusing overwrite"))',
+           f'(vla-SaveAs lpc-live-doc {string(str(output).replace(chr(92), "/"))})'] if save_requested else []),
         '(setq lpc-live-stage "actual-readback")',
         f'(lpc-live-snapshot {string(str(snapshot_path).replace(chr(92), "/"))} lpc-live-table)',
         '(setq lpc-live-f (open lpc-live-receipt "w" "utf8"))',

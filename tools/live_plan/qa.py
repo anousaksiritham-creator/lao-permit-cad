@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 
 from .geometry import area
+from .render import grid_limits
 
 
 def _p(value):
@@ -30,7 +31,10 @@ def audit(plan, actual, visual_review=None):
         checks.append({'check':name,'status':'PASS' if condition else 'FAIL','evidence':detail})
     entities = actual.get('entities',[])
     check('units',actual.get('units')==4,'INSUNITS must be 4 (mm)')
-    check('saved',actual.get('saved') is True,'Readback must follow saving the new DWG')
+    if actual.get('save_requested') is False:
+        check('save_policy',actual.get('drawing') == '' and actual.get('saved') is False,'Live mode: drawing must remain unsaved with no disk path')
+    else:
+        check('saved',actual.get('saved') is True,'Explicit save mode: readback follows saving the new DWG')
     expected=Counter(_line(l['layer'],l['a'],l['b']) for l in plan['lines'])
     measured=Counter(_line(e['layer'],e['a'],e['b']) for e in entities if e['type']=='AcDbLine' and e['layer']!='A-GRID')
     check('source_lines',expected==measured,{'expected':sum(expected.values()),'actual':sum(measured.values()),'missing':sum((expected-measured).values()),'extra':sum((measured-expected).values())})
@@ -59,8 +63,7 @@ def audit(plan, actual, visual_review=None):
     check('labels',expected_labels==actual_labels,'Confirmed label text and actual alignment points')
     grid=plan.get('grid')
     if grid:
-        x0,x1=float(grid['x'][0]['value'])-1600,float(grid['x'][-1]['value'])+1600
-        y0,y1=float(grid['y'][0]['value'])-1600,float(grid['y'][-1]['value'])+1600
+        x0,y0,x1,y1=grid_limits(plan)
         axes=[];labels=[];circles=[]
         for direction in ('x','y'):
             for item in grid[direction]:
