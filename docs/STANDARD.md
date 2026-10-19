@@ -5,6 +5,20 @@ description: Draw, check or complete a Lao building-permit drawing set (ແບ�
 
 # Lao building-permit drawing set (AutoCAD)
 
+## Current execution policy (2026-10-19)
+
+- Draw directly in running AutoCAD with `tools/run_live.ps1`; no save/plot unless explicitly requested.
+- `tools/build.ps1` defaults to unsaved live drawing. `-ExportDwg`, `-Png`, `-Pdf` are opt-in.
+- Preserve all existing objects. Use an empty unsaved document; no automatic erase/rebuild.
+- Read live capabilities first; do not assume an MCP draw API exists. The COM runner is a separate, tested backend.
+- Never retry mutations after errors/timeouts. Inspect the target and per-run journal first.
+- Geometry QA is not engineering approval. Do not infer loads, supports, code compliance, material sizes,
+  door clear widths or hinges from unclassified Box objects. Reference dimensions/levels below belong
+  to the reference project only; new projects require confirmed inputs.
+- Grid heads belong outside the outer dimension chain. Keep level datum and model-to-plan transforms explicit.
+- See [LIVE-WORKFLOW.md](../docs/LIVE-WORKFLOW.md) for operation and limits.
+
+
 Learned from the user's reference file `D:\ANS\Claude\ແບບ.dwg` (2-storey RC house, steel-truss roof). Copy its conventions; do not invent a new style.
 
 ## 1. Connecting
@@ -108,7 +122,7 @@ Repo `D:\ANS\Claude\CAD train AI\lao-permit-cad` (GitHub private: anousaksiritha
 2. Create `projects/<name>/project.json` (copy projects/seathis): id, name (Lao), location, owner, designer, date,
    model_dir (= .skp file name without extension), dwg_name, extract {cuts, skip, hidden, sections}, optional
    floors [{name, cut, level}] for multi-storey.
-3. `powershell -File tools\build.ps1 -Project projects\<name>\project.json -Pdf` → out\<model>\: DWG, merged PDF,
+3. `powershell -File tools\build.ps1 -Project projects\<name>\project.json -ExportDwg -Pdf` → out\<model>\: DWG, merged PDF,
    png previews, qa.json (~20 s + extraction ~40 s). Re-running replaces the previous build (XDATA "LPC" = id).
 4. ALWAYS look at out\<model>\png\*.png before reporting; fix build_set.py and rebuild with -SkipExtract.
 5. Model must follow docs/MODEL-CONVENTION.md (top-level "NN name" codes 00–20, children "TYPE-NN desc").

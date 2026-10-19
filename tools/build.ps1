@@ -2,15 +2,16 @@
 #   powershell -File tools\build.ps1 -Project projects\seathis\project.json [-SkipExtract] [-Pdf] [-NoPng]
 # Needs: SketchUp open with the model + HTML MCP v2 bridge started (unless -SkipExtract),
 #        AutoCAD 2025 running. Output folder: out\<model name>\
-param([Parameter(Mandatory)][string]$Project, [switch]$SkipExtract, [switch]$Pdf, [switch]$NoPng)
+param([Parameter(Mandatory)][string]$Project, [switch]$SkipExtract, [switch]$Pdf, [switch]$NoPng, [switch]$ExportDwg, [switch]$Png, [string]$DrawingName)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$node = 'C:\Users\This notebook\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
+
 $proj = Get-Content $Project -Raw -Encoding UTF8 | ConvertFrom-Json
 $sw = [Diagnostics.Stopwatch]::StartNew()
 
 # 1. extract (bridge command lpc_extract) -> out\<model>\model.json
 if (-not $SkipExtract) {
+    $node = if ($env:LPC_NODE) { $env:LPC_NODE } else { (Get-Command node -ErrorAction Stop).Source }
     $ex = if ($proj.extract) { $proj.extract | ConvertTo-Json -Compress } else { '{}' }
     $exFile = Join-Path $env:TEMP 'lpc_extract_args.json'
     [IO.File]::WriteAllText($exFile, $ex)
@@ -30,22 +31,24 @@ $lsp = Join-Path $outDir 'set.lsp'
 & python -I (Join-Path $PSScriptRoot 'build_set.py') $model (Resolve-Path $Project).Path $lsp 0 0
 if ($LASTEXITCODE -ne 0) { throw 'build_set failed' }
 
-# 3. draw + save
+# 3. QA before any CAD mutation; failures stop the pipeline.
+& python -I (Join-Path $PSScriptRoot 'check_set.py') "$lsp.sheets.json" $model (Join-Path $outDir 'qa.json')
+if ($LASTEXITCODE -ne 0) { throw 'QA failed; nothing submitted to AutoCAD' }
+
+# 4. Live drawing; saving and plotting are explicit opt-ins.
 $dwgName = if ($proj.dwg_name) { $proj.dwg_name } else { 'set.dwg' }
 $dwg = Join-Path $outDir $dwgName
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'run_lisp.ps1') -Lisp $lsp -Dwg $dwg
+$liveArgs = @{ Lisp = $lsp }
+if ($DrawingName) { $liveArgs.DrawingName = $DrawingName }
+if ($ExportDwg) { $liveArgs.SaveAs = $dwg }
+& (Join-Path $PSScriptRoot 'run_live.ps1') @liveArgs
 if ($LASTEXITCODE -ne 0) { throw 'AutoCAD build failed' }
 
-# 4. QA
-& python -I (Join-Path $PSScriptRoot 'check_set.py') "$lsp.sheets.json" $model (Join-Path $outDir 'qa.json')
-$qaFail = $LASTEXITCODE -ne 0
-
 # 5. previews / PDF
-if (-not $NoPng) { & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'plot_pdf.ps1') -Sheets "$lsp.sheets.json" -OutDir (Join-Path $outDir 'png') -Png | Out-Null }
+if ($Png -and -not $NoPng) { & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'plot_pdf.ps1') -Sheets "$lsp.sheets.json" -OutDir (Join-Path $outDir 'png') -Png | Out-Null }
 if ($Pdf) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'plot_pdf.ps1') -Sheets "$lsp.sheets.json" -OutDir (Join-Path $outDir 'pdf')
     # merged submission PDF (python without -I so the user-site pypdf is found)
     & python (Join-Path $PSScriptRoot 'merge_pdf.py') "$lsp.sheets.json" (Join-Path $outDir 'pdf') ([IO.Path]::ChangeExtension($dwg, $null).TrimEnd('.') + '_set.pdf')
 }
-Write-Output ("done in {0:N0}s  dwg: {1}" -f $sw.Elapsed.TotalSeconds, $dwg)
-if ($qaFail) { exit 1 }
+Write-Output ("Live drawing completed in {0:N0}s; no drawing file is saved unless ExportDwg was requested" -f $sw.Elapsed.TotalSeconds)

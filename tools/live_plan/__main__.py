@@ -23,7 +23,7 @@ def main():
     for name in ('prepare','draw'):
         p=sub.add_parser(name);p.add_argument('source');p.add_argument('--config',required=True)
         p.add_argument('--work',required=True,help='Internal scratch directory, not final delivery')
-        if name=='draw':p.add_argument('--output',required=True,help='New .dwg path; never overwrite')
+        if name=='draw':p.add_argument('--output',help='Optional explicit SaveAs to a new .dwg; default: live unsaved drawing')
     p=sub.add_parser('audit');p.add_argument('plan');p.add_argument('actual');p.add_argument('--output',required=True);p.add_argument('--visual-review')
     args=parser.parse_args()
     if args.command=='audit':
@@ -34,7 +34,7 @@ def main():
         if args.command=='prepare':
             work=Path(args.work).resolve()
             # Exercise the renderer and sheet fit during offline validation.
-            render(plan,'NEW',work/'unused.dwg',work/'unused-actual.json',work/'unused-receipt.json','prepare-only')
+            render(plan,'NEW',None,work/'unused-actual.json',work/'unused-receipt.json','prepare-only')
             write(work/'plan.json',plan)
             print(f'Prepared {work / "plan.json"}; no CAD application modified')
             return 0
