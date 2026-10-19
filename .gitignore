@@ -4,3 +4,13 @@ cad_views/
 out/
 __pycache__/
 *.pyc
+.live-runs/
+/work/
+/outputs/
+/snapshots/
+*.dwg
+*.skp
+*.dxf
+connection.json
+.env
+.env.*

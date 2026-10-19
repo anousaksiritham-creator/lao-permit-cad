@@ -1,0 +1,22 @@
+{
+  "expected_model": "Synthetic demo",
+  "rules": [
+    {"pattern": "^Wall_", "kind": "wall"},
+    {"pattern": "^Column_", "kind": "column"}
+  ],
+  "wall_thickness_mm": 100,
+  "revision_evidence": "Synthetic example only: explicit 100 mm wall revision, centre line retained.",
+  "dimensions": [
+    {"p1":[0,75],"p2":[6000,75],"position":[3000,1100],"verified":true,"evidence":"Centres of the two actual synthetic column cut rectangles."}
+  ],
+  "labels": [
+    {"text":"SYNTHETIC DEMO","position":[3000,-600],"verified":true,"evidence":"Explicit synthetic demonstration label; no room name inferred."}
+  ],
+  "grid": {
+    "verified": true,
+    "evidence": "Synthetic columns A/B have actual cut centres (0,75) and (6000,75).",
+    "x": [{"value":0,"label":"A"},{"value":6000,"label":"B"}],
+    "y": [{"value":75,"label":"1"}]
+  },
+  "sheet": {"number":"A-101","scale":100}
+}

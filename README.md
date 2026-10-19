@@ -6,6 +6,10 @@
 
 ຄູ່ມືໃໝ່: [ແຕ້ມໃນ AutoCAD ໂດຍກົງ](docs/LIVE-WORKFLOW.md).
 
+ໂມດູນຫຼັກສຳລັບ source geometry, Draw Order ແລະການກວດ entities ແມ່ນ `tools/live_plan/`:
+[ຄູ່ມື Live Plan + QA](docs/LIVE-PLAN.md). ທັງ module ນີ້ ແລະ pipeline ເດີມດ້ານລຸ່ມໃຊ້ຄ່າ default ບໍ່ save ແບບ.
+
+
 ## ຕິດຕັ້ງຄັ້ງທຳອິດ (ເຄື່ອງໃໝ່)
 1. ຕິດຕັ້ງ extension HTML MCP v2 ໃນ SketchUp 2025.
 2. ເພີ່ມຄຳສັ່ງ `lpc_extract` ໃສ່ extension: `powershell -File extension\install.ps1`
