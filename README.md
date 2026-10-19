@@ -1,7 +1,10 @@
 # lao-permit-cad
 
-ເຄື່ອງມືແຕ້ມ **ແບບຂໍອະນຸຍາດປຸກສ້າງ / Shop drawing** ຈາກໂມເດວ SketchUp ລົງ AutoCAD 2025 ອັດຕະໂນມັດ —
-1 ຄຳສັ່ງ ໄດ້ຊຸດແບບ A3 ຄົບ (DWG + PDF) ພ້ອມ QA.
+ເຄື່ອງມືສ້າງຮ່າງແບບຈາກ SketchUp ແລະແຕ້ມໃນ AutoCAD 2025 ທີ່ເປີດຢູ່ໂດຍກົງ.
+**ຄ່າປົກກະຕິບໍ່ save DWG/DXF/PDF.** ວັດຖຸເດີມແມ່ນ LOCKED; ໃຊ້ແຜ່ນວ່າງທີ່ຍັງບໍ່ save.
+ເປັນລະບົບ pre-design/drafting QA, ບໍ່ແມ່ນການຮັບຮອງແບບວິສະວະກຳ ຫຼືອະນຸຍາດກໍ່ສ້າງ.
+
+ຄູ່ມືໃໝ່: [ແຕ້ມໃນ AutoCAD ໂດຍກົງ](docs/LIVE-WORKFLOW.md).
 
 ## ຕິດຕັ້ງຄັ້ງທຳອິດ (ເຄື່ອງໃໝ່)
 1. ຕິດຕັ້ງ extension HTML MCP v2 ໃນ SketchUp 2025.
@@ -12,12 +15,13 @@
 ## ໃຊ້ງານ (1 ຄຳສັ່ງ)
 ກ່ອນ: ເປີດ SketchUp + ໂມເດວ, **Extensions > HTML MCP v2 > Start bridge**; ເປີດ AutoCAD 2025.
 ```powershell
-powershell -File tools\build.ps1 -Project projects\seathis\project.json -Pdf
+powershell -File tools\build.ps1 -Project projects\seathis\project.json
 ```
-ຜົນ: `out\<model>\` → `<name>.dwg`, `<name>_set.pdf` (ລວມທຸກແຜ່ນ), `pdf\*.pdf`, `png\*.png` (ພາບກວດ), `qa.json`.
+ຜົນ: ເຫັນຮ່າງໃນ AutoCAD ໂດຍກົງ. `out/` ເກັບຂໍ້ມູນພາຍໃນ ແລະ run journal.
+ໃຊ້ `-ExportDwg`, `-Png`, `-Pdf` ສະເພາະເມື່ອຜູ້ໃຊ້ຂໍສົ່ງອອກ.
 
-ຂັ້ນຕອນພາຍໃນ: `lpc_extract` (SketchUp, ~40 ວິ) → `build_set.py` (AutoLISP) → `run_lisp.ps1` (AutoCAD, ລຶບຂອງເກົ່າຂອງໂຄງການແລ້ວແຕ້ມໃໝ່)
-→ `check_set.py` (QA) → `plot_pdf.ps1` (PNG/PDF) → `merge_pdf.py`.
+ຂັ້ນຕອນ: extraction → build LISP → QA → live draw. QA ຜິດພາດຈະຢຸດກ່ອນແຕ້ມ.
+ບໍ່ລຶບຮ່າງເກົ່າ ແລະບໍ່ retry ຄຳສັ່ງແຕ້ມທີ່ timeout. ຕ້ອງມີ Node ໃນ PATH ຫຼືຕັ້ງ `LPC_NODE` ໃຫ້ຊີ້ executable; `-SkipExtract` ບໍ່ຕ້ອງໃຊ້ Node.
 
 ## ຊຸດແບບທີ່ໄດ້ (ຕົວຢ່າງ Seathis Office — 16 ແຜ່ນ)
 | ແຜ່ນ | ເນື້ອໃນ |

@@ -253,9 +253,9 @@ module LaoPermitExtract
         x0, y0, x1, y1 = bb.min.x - pad, bb.min.y - pad, bb.max.x + pad, bb.max.y + pad
         z0, z1 = bb.min.z - pad, bb.max.z + pad
         data = {
-          version: 2, job: @job, model: @model.path, title: @model.title, sketchup: Sketchup.version,
+          version: 2, units: 'mm', up_axis: 'Z', model_guid: @model.guid, job: @job, model: @model.path, title: @model.title, sketchup: Sketchup.version,
           bounds_mm: { min: bb.min.to_a.map { |c| mm(c) }, max: bb.max.to_a.map { |c| mm(c) } },
-          objects: tops.map { |e| b = e.bounds; { code: code_of(e), name: name_of(e), tag: e.layer ? e.layer.name : '',
+          objects: tops.map { |e| b = e.bounds; { persistent_id: e.persistent_id, code: code_of(e), name: name_of(e), tag: e.layer ? e.layer.name : '',
                                                   min: b.min.to_a.map { |c| mm(c) }, max: b.max.to_a.map { |c| mm(c) },
                                                   children: children(e) } },
           materials: @model.materials.map { |m| { name: m.name, alpha: m.alpha } },

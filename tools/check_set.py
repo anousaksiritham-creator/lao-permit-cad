@@ -5,6 +5,9 @@ python -I check_set.py <set.lsp.sheets.json> <model.json> [qa.json]
 """
 import json
 import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from drawing_qa import validate_model
 
 ALLOWED = {20, 25, 40, 50, 75, 100, 200}
 
@@ -14,6 +17,9 @@ def main():
     model = json.load(open(sys.argv[2], encoding="utf-8"))
     out = sys.argv[3] if len(sys.argv) > 3 else None
     errors, warns, info = [], list(meta.get("warnings", [])), []
+    source_qa = validate_model(model, {})
+    errors.extend(source_qa['errors'])
+    warns.extend(source_qa['warnings'])
     sheets = meta["sheets"]
     nos = [s["no"] for s in sheets]
     if len(nos) != len(set(nos)):
@@ -52,7 +58,7 @@ def main():
     # sections present
     if not model.get("sections"):
         warns.append("no sections extracted")
-    res = {"errors": errors, "warnings": warns, "info": info}
+    res = {"errors": errors, "warnings": warns, "info": info, "readiness": "PRE_DESIGN_ONLY", "engineering_approval": False, "construction_release": False}
     if out:
         json.dump(res, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     sys.stdout.reconfigure(encoding="utf-8")

@@ -4,8 +4,7 @@ door/window tags, levels, schedules, cover + index, B/E/P sheets.
 
 python -I build_set.py <model.json> <project.json> <out.lsp> [originX originY]
 
-Everything drawn carries XDATA  LPC = <project id>, and the LISP first erases the previous
-build of the same project, so re-running is idempotent. Lao text is written as \\U+XXXX escapes
+Everything drawn carries XDATA LPC = <project id>. The LISP builds only into an empty drawing; existing objects are never erased. Lao text is written as \\U+XXXX escapes
 (ASCII-safe LISP). Writes <out>.sheets.json with the sheet list for plotting / QA.
 """
 import json
@@ -13,6 +12,8 @@ import math
 import os
 import sys
 from collections import defaultdict
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from drawing_qa import validate_model
 
 # ---------------------------------------------------------------- constants
 FRAME_W, FRAME_H = 42000.0, 29700.0           # A3 at 1:100 (frame scale 1)
@@ -224,17 +225,14 @@ PRELUDE = r'''
 (vl-load-com)
 (setq lpc-doc (vla-get-ActiveDocument (vlax-get-acad-object)) lpc-ms (vla-get-ModelSpace lpc-doc))
 (setq LPC-PROJ %(proj)s)
+(if (> (vla-get-Count lpc-ms) 0) (progn (princ "LOCKED: target is not empty") (exit)))
 (regapp "LPC")
 (setvar "CMDECHO" 0)
 (defun lpc-xd () (list -3 (list "LPC" (cons 1000 LPC-PROJ))))
 (defun lpc-x (obj / e) (setq e (vlax-vla-object->ename obj)) (entmod (append (entget e) (list (lpc-xd)))) obj)
-(defun lpc-clean (/ ss i e x n)
-  (setq n 0)
-  (if (setq ss (ssget "_X" (list (list -3 (list "LPC")))))
-    (repeat (setq i (sslength ss))
-      (setq e (ssname ss (setq i (1- i))) x (cdr (assoc -3 (entget e (list "LPC")))))
-      (if (= (cdr (assoc 1000 (cdr (car x)))) LPC-PROJ) (progn (entdel e) (setq n (1+ n))))))
-  n)
+(defun lpc-assert-new ()
+  (if (> (vla-get-Count lpc-ms) 0)
+    (progn (princ "Existing modelspace entities are LOCKED; use an empty drawing") (exit))))
 (defun lpc-layer (nm col lw lt / l)
   (if (not (tblsearch "LTYPE" lt)) (vl-catch-all-apply 'vla-Load (list (vla-get-Linetypes lpc-doc) lt "acad.lin")))
   (setq l (vla-Add (vla-get-Layers lpc-doc) nm))
@@ -340,7 +338,7 @@ class SetBuilder:
         self.ox, self.oy = origin
         self.L = Lisp(project["id"])
         self.sheets = []
-        self.warnings = []
+        self.warnings = ["PRE-DESIGN: geometry/annotation review only; not engineering or construction release"]
         self.cursor = self.ox
         objs = {o.get("code") or o["name"].split(" ")[0]: o for o in model["objects"]}
         self.objs = objs
@@ -494,12 +492,12 @@ class SetBuilder:
         lets = ([str(i + 1) for i in range(len(gy))] if long_y else [chr(65 + i) for i in range(len(gy))])
         # model x-grids -> after rotation they are horizontal lines; keep generic via tplan
         for v, lab in zip(gx, nums):
-            a = self.tplan(v, self.fp[0][1] - 1500)
-            b = self.tplan(v, self.fp[1][1] + 1500)
+            a = self.tplan(v, self.fp[0][1] - (1500 + 20 * scale + 3 * r))
+            b = self.tplan(v, self.fp[1][1] + (1500 + 20 * scale + 3 * r))
             self.grid_line(a, b, lab, dx, dy, r)
         for v, lab in zip(gy, lets):
-            a = self.tplan(self.fp[0][0] - 1500, v)
-            b = self.tplan(self.fp[1][0] + 1500, v)
+            a = self.tplan(self.fp[0][0] - (1500 + 20 * scale + 3 * r), v)
+            b = self.tplan(self.fp[1][0] + (1500 + 20 * scale + 3 * r), v)
             self.grid_line(a, b, lab, dx, dy, r)
 
     def grid_line(self, a, b, lab, dx, dy, r):
@@ -516,7 +514,7 @@ class SetBuilder:
         gx, gy = self.grids
         (mnx, mny, _), (mxx, mxy, _) = self.fp
         step = 8 * scale
-        base = 1500 + 12 * scale         # first dimension row sits outside the grid bubbles
+        base = 1500 + 12 * scale         # first dimension row; grid bubbles extend beyond both rows
         xs = sorted(set([mnx] + gx + [mxx]))
         ys = sorted(set([mny] + gy + [mxy]))
         # dimension chains along model X (below model min Y) and along model Y (left of model min X)
@@ -741,7 +739,7 @@ class SetBuilder:
     def build(self):
         m, L = self.m, self.L
         L.add(PRELUDE % {"proj": lisp_str(self.p["id"]), "block": BLOCK})
-        L.add('(princ (strcat "\\nLPC: removed " (itoa (lpc-clean)) " old entities"))')
+        L.add('(lpc-assert-new)')
         for nm, (col, lw, lt) in LAYERS.items():
             L.add('(lpc-layer "%s" %d %d "%s")' % (nm, col, lw, lt))
         title_block(L)
@@ -883,15 +881,19 @@ def main():
     oy = float(sys.argv[5]) if len(sys.argv) > 5 else 0.0
     model = json.load(open(src, encoding="utf-8"))
     project = json.load(open(proj_path, encoding="utf-8"))
+    source_qa = validate_model(model, project)
+    if source_qa['errors']:
+        raise ValueError('; '.join(source_qa['errors']))
     project.setdefault("engineer_note", "ໝາຍເຫດ: ແຜ່ນນີ້ສ້າງຈາກໂມເດວ — ວິສະວະກອນຕ້ອງກວດກາ, ຄຳນວນ ແລະ ຢັ້ງຢືນກ່ອນນຳໃຊ້")
     project["done_flag"] = os.path.abspath(out + ".done")
     if os.path.exists(project["done_flag"]):
         os.remove(project["done_flag"])
     b = SetBuilder(model, project, (ox, oy))
+    b.warnings.extend(source_qa['warnings'])
     lsp = b.build()
     open(out, "w", encoding="ascii").write(lsp)
     meta = {"sheets": b.sheets, "warnings": b.warnings, "rotate": b.rotate, "grids": b.grids, "levels": b.levels,
-            "openings": len(b.openings), "done_flag": project["done_flag"]}
+            "openings": len(b.openings), "done_flag": project["done_flag"], "source_qa": source_qa, "readiness": "PRE_DESIGN_ONLY"}
     json.dump(meta, open(out + ".sheets.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(json.dumps({"sheets": [(s["no"], s["scale"]) for s in b.sheets], "grids": [len(g) for g in b.grids],
                       "openings": len(b.openings), "rotate": b.rotate, "lsp_kb": len(lsp) // 1024}, ensure_ascii=False))
